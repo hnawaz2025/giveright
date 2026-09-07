@@ -1,0 +1,46 @@
+{
+  "items": [
+    {
+      "category": "winter_coats",
+      "description": "navy padded parka, adult",
+      "quantity": 2,
+      "condition_hint": "good",
+      "note": "one has a working zip, the other is missing its hood toggle"
+    },
+    {
+      "category": "towels",
+      "description": "folded bath towels",
+      "quantity": 4,
+      "condition_hint": null,
+      "note": "faded but no visible holes"
+    },
+    {
+      "category": "car_seats",
+      "description": "grey infant car seat",
+      "quantity": 1,
+      "condition_hint": null,
+      "note": "date stamp on the side reads 2016"
+    },
+    {
+      "category": "books",
+      "description": "paperback novels",
+      "quantity": 11,
+      "condition_hint": "fair",
+      "note": ""
+    },
+    {
+      "category": "mattresses",
+      "description": "single foam mattress, rolled",
+      "quantity": 1,
+      "condition_hint": "fair",
+      "note": ""
+    },
+    {
+      "category": "childrens_clothing",
+      "description": "toddler jumpers and leggings",
+      "quantity": 6,
+      "condition_hint": "good",
+      "note": "outgrown, no stains"
+    }
+  ]
+}

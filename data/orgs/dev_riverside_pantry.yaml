@@ -1,0 +1,32 @@
+# DEVELOPMENT FIXTURE -- not a real organization.
+# Real Washington DC orgs land here on Wed 10 Sep, each with a source_url and a
+# verification date. Nothing invented ships to the demo.
+id: dev_riverside_pantry
+name: "Riverside Community Pantry (DEV FIXTURE)"
+lat: 38.9072
+lng: -77.0369
+address: "000 Example Ave NW, Washington, DC"
+hours: "Mon-Fri 9:00-16:00, Sat 10:00-13:00"
+email: "dev-null@example.invalid"
+preferred_channel: email
+verification_source: "SYNTHETIC -- development only"
+accepts:
+  towels: fair
+  kitchenware: good
+  childrens_clothing: good
+  canned_food: new
+prohibited:
+  - mattresses
+  - car_seats
+needs:
+  - category: towels
+    target_qty: 40
+    on_hand_estimate: 6
+    last_verified: 2026-09-05
+    confirmed_by_org: true
+  - category: childrens_clothing
+    target_qty: 60
+    on_hand_estimate: 55
+    last_verified: 2026-08-12
+    confirmed_by_org: false
+    source_url: "https://example.invalid/needs"

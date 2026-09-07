@@ -1,0 +1,67 @@
+# Terminal pathways for items no organisation will take.
+#
+# Ordered by value recovered: a named reuse organisation first, material
+# recycling second, disposal last and never counted as a save. Every entry
+# names a real destination, because "recycle it" is not an answer a person can
+# act on -- "Mattress recycling, 2160 Queens Chapel Rd NE" is.
+#
+# `dev_*` and `example.invalid` entries are development placeholders; real DC
+# pathways carry a source_url and last_verified before any demo.
+
+default:
+  hold_days: 21
+  reuse:
+    - name: "Goodwill of Greater Washington (DEV PLACEHOLDER)"
+      note: "General reuse donation centre; takes most household goods in fair condition."
+      url: "https://example.invalid/dev-goodwill"
+  recycle: []
+  disposal: "Municipal solid waste collection."
+
+categories:
+
+  winter_coats:
+    reuse:
+      - name: "A Wider Circle (DEV PLACEHOLDER)"
+        note: "Takes clothing year round for its wraparound service programme."
+        url: "https://example.invalid/dev-wider-circle"
+    recycle:
+      - name: "Textile recycling drop box (DEV PLACEHOLDER)"
+        note: "Worn or stained textiles are recycled into insulation and rags -- they do not need to be wearable."
+        url: "https://example.invalid/dev-textile"
+    disposal: "Only if wet or contaminated; otherwise textile recycling takes it."
+
+  car_seats:
+    reuse: []
+    recycle:
+      - name: "Retailer car-seat trade-in event (DEV PLACEHOLDER)"
+        note: "Seats past their expiry date cannot be passed to another family, but the shell and harness are recycled."
+        url: "https://example.invalid/dev-carseat-tradein"
+    disposal: >-
+      Cut the harness straps and mark the shell "EXPIRED -- DO NOT USE" before
+      putting it out, so it is not taken from the kerb and reused unsafely.
+
+  mattresses:
+    reuse: []
+    recycle:
+      - name: "Mattress recycling drop-off (DEV PLACEHOLDER)"
+        note: "Steel, foam and timber are separated and recovered."
+        url: "https://example.invalid/dev-mattress"
+    disposal: "Bulk collection, by appointment."
+
+  books:
+    reuse:
+      - name: "Little Free Library stewardship (DEV PLACEHOLDER)"
+        note: "Neighbourhood book exchange; takes general fiction and children's books."
+        url: "https://example.invalid/dev-lfl"
+    recycle:
+      - name: "Paper recycling"
+        note: "Hardback covers removed."
+    disposal: "Paper recycling handles this; disposal should not be needed."
+
+  lamps:
+    reuse: []
+    recycle:
+      - name: "Small electrical recycling (DEV PLACEHOLDER)"
+        note: "Wiring and metal are recovered; CFL bulbs must be removed first."
+        url: "https://example.invalid/dev-weee"
+    disposal: "Remove and recycle the bulb separately, then dispose of the base."

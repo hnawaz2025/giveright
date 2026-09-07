@@ -1,0 +1,29 @@
+# DEVELOPMENT FIXTURE -- not a real organization.
+id: dev_northgate_shelter
+name: "Northgate Family Shelter (DEV FIXTURE)"
+lat: 38.9297
+lng: -77.0322
+address: "000 Example St NW, Washington, DC"
+hours: "Daily 8:00-20:00"
+email: "dev-null@example.invalid"
+preferred_channel: email
+verification_source: "SYNTHETIC -- development only"
+accepts:
+  winter_coats: fair
+  towels: good
+  books: fair
+  lamps: good
+prohibited:
+  - open_food
+needs:
+  - category: winter_coats
+    target_qty: 50
+    on_hand_estimate: 2
+    last_verified: 2026-09-06
+    confirmed_by_org: true
+  - category: towels
+    target_qty: 20
+    on_hand_estimate: 19
+    last_verified: 2026-07-01
+    confirmed_by_org: false
+    source_url: "https://example.invalid/northgate-needs"

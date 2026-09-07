@@ -1,0 +1,29 @@
+[project]
+name = "giveright"
+version = "0.1.0"
+description = "Matching what a neighborhood has to give with what local organizations actually need"
+requires-python = ">=3.11"
+dependencies = [
+    "strands-agents",
+    "pyyaml",
+    "fastapi",
+    "uvicorn",
+    "boto3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+giveright = "giveright.demo:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

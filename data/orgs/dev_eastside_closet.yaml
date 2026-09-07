@@ -1,0 +1,35 @@
+# DEVELOPMENT FIXTURE -- not a real organization.
+# Exists to exercise a path the other fixtures do not: a need that has aged past
+# its shelf life, which the agent offers to go and check.
+id: dev_eastside_closet
+name: "Eastside Clothing Closet (DEV FIXTURE)"
+lat: 38.8951
+lng: -76.9894
+address: "000 Example Rd NE, Washington, DC"
+hours: "Tue & Thu 12:00-18:00"
+phone: "+1-202-555-0100"
+email: "dev-null@example.invalid"
+preferred_channel: email
+verification_source: "SYNTHETIC -- development only"
+accepts:
+  winter_coats: poor
+  childrens_clothing: fair
+  books: poor
+  towels: poor
+prohibited:
+  - open_food
+needs:
+  - category: winter_coats
+    target_qty: 30
+    on_hand_estimate: 1
+    # Deliberately old: this is what a stale need looks like, and what the
+    # agent should offer to ring about rather than quietly down-rank.
+    last_verified: 2026-06-01
+    confirmed_by_org: false
+    source_url: "https://example.invalid/eastside-needs"
+    shelf_life_days: 14
+  - category: books
+    target_qty: 100
+    on_hand_estimate: 20
+    last_verified: 2026-09-04
+    confirmed_by_org: true
