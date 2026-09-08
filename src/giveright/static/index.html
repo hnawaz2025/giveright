@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1d6b52">
+<title>GiveRight</title>
+<style>
+:root {
+  --ink: #17211d;      --dim: #5c6b64;    --faint: #8b9a93;
+  --bg: #f7f5f0;       --card: #ffffff;   --line: #e3e0d8;
+  --brand: #1d6b52;    --brand-soft: #e8f2ed;
+  --warn: #8a5a12;     --warn-soft: #fdf3e0;
+  --stop: #8c3a2e;     --stop-soft: #fbeceb;
+  --radius: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #eef2f0;     --dim: #a3b2ab;   --faint: #7e8d87;
+    --bg: #101512;      --card: #1a211d;  --line: #2b342f;
+    --brand: #6cc39c;   --brand-soft: #163026;
+    --warn: #e0b264;    --warn-soft: #2e2415;
+    --stop: #e8988c;    --stop-soft: #2f1b18;
+  }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           calc(env(safe-area-inset-bottom) + 80px) env(safe-area-inset-left);
+}
+.wrap { max-width: 640px; margin: 0 auto; padding: 0 16px; }
+
+header { padding: 20px 0 8px; }
+h1 { font-size: 21px; margin: 0; letter-spacing: -0.02em; }
+h1 span { color: var(--brand); }
+.tag { color: var(--dim); font-size: 13.5px; margin: 4px 0 0; }
+
+h2 { font-size: 15px; margin: 26px 0 10px; letter-spacing: .04em;
+     text-transform: uppercase; color: var(--faint); font-weight: 600; }
+
+.card { background: var(--card); border: 1px solid var(--line);
+        border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+
+label { display: block; font-size: 13.5px; color: var(--dim); margin-bottom: 6px; }
+input[type=range] { width: 100%; accent-color: var(--brand); height: 28px; }
+.radius { display: flex; align-items: baseline; justify-content: space-between; }
+.radius b { font-size: 25px; font-variant-numeric: tabular-nums; }
+.radius i { font-style: normal; color: var(--dim); font-size: 13.5px; }
+
+button {
+  font: inherit; font-weight: 600; border: 0; border-radius: 12px;
+  padding: 15px 18px; width: 100%; cursor: pointer;
+  background: var(--brand); color: #fff; min-height: 52px;
+}
+button:disabled { opacity: .5; cursor: default; }
+button.ghost { background: transparent; color: var(--brand);
+               border: 1.5px solid var(--line); }
+button.small { width: auto; padding: 9px 14px; min-height: 0; font-size: 14px; }
+
+.shoot { display: block; text-align: center; background: var(--brand); color: #fff;
+         border-radius: 12px; padding: 17px; font-weight: 600; }
+.shoot input { display: none; }
+
+.item { display: flex; gap: 12px; align-items: baseline;
+        padding: 11px 0; border-bottom: 1px solid var(--line); }
+.item:last-child { border-bottom: 0; }
+.qty { font-variant-numeric: tabular-nums; color: var(--brand);
+       font-weight: 700; min-width: 26px; }
+.desc { color: var(--dim); font-size: 13.5px; }
+
+.q { background: var(--warn-soft); border-color: transparent; }
+.q p { margin: 0 0 4px; font-weight: 600; }
+.q .stake { font-size: 13.5px; color: var(--dim); margin-bottom: 12px; }
+.choices { display: flex; gap: 8px; }
+.choices button { flex: 1; background: var(--card); color: var(--ink);
+                  border: 1.5px solid var(--line); }
+.choices button[aria-pressed="true"] { background: var(--brand); color: #fff;
+                                        border-color: var(--brand); }
+
+.stop-n { display: inline-block; background: var(--brand-soft); color: var(--brand);
+          font-weight: 700; font-size: 12.5px; border-radius: 99px;
+          padding: 3px 10px; margin-bottom: 8px; }
+.org { font-weight: 650; font-size: 17px; margin: 0 0 2px; }
+.meta { color: var(--dim); font-size: 13.5px; margin: 0 0 12px; }
+.why { background: var(--brand-soft); border-radius: 10px; padding: 10px 12px;
+       font-size: 13.5px; color: var(--ink); margin-top: 8px; }
+.why.surplus { background: transparent; border: 1px dashed var(--line);
+               color: var(--dim); }
+
+.aged { background: var(--warn-soft); }
+.aged .org { color: var(--warn); }
+
+.left { background: var(--stop-soft); }
+.left .org { color: var(--stop); font-size: 15.5px; }
+.left.reuse { background: var(--brand-soft); }
+.left.reuse .org { color: var(--brand); }
+.badge { display: inline-block; font-size: 11.5px; font-weight: 700;
+         letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px;
+         border-radius: 99px; background: var(--card); color: var(--dim);
+         margin-left: 6px; vertical-align: 1px; }
+
+pre.draft { white-space: pre-wrap; font: 13px/1.55 ui-monospace, SFMono-Regular,
+            Menlo, monospace; background: var(--bg); border-radius: 10px;
+            padding: 12px; margin: 10px 0 0; overflow-x: auto; }
+
+.err { background: var(--stop-soft); color: var(--stop); }
+.spin { display: inline-block; width: 15px; height: 15px; vertical-align: -2px;
+        border: 2px solid currentColor; border-right-color: transparent;
+        border-radius: 50%; animation: sp .7s linear infinite; margin-right: 8px; }
+@keyframes sp { to { transform: rotate(360deg); } }
+.center { text-align: center; color: var(--dim); padding: 26px 0; }
+
+nav { position: fixed; bottom: 0; left: 0; right: 0; display: flex;
+      background: var(--card); border-top: 1px solid var(--line);
+      padding-bottom: env(safe-area-inset-bottom); }
+nav button { background: transparent; color: var(--dim); border-radius: 0;
+             font-size: 13px; font-weight: 600; padding: 13px 0; }
+nav button[aria-current="true"] { color: var(--brand);
+                                  box-shadow: inset 0 2px 0 var(--brand); }
+
+.stat { display: flex; gap: 10px; }
+.stat > div { flex: 1; text-align: center; }
+.stat b { display: block; font-size: 27px; font-variant-numeric: tabular-nums;
+          color: var(--brand); }
+.stat span { font-size: 12.5px; color: var(--dim); }
+.note { font-size: 12.5px; color: var(--faint); margin-top: 14px; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Give<span>Right</span></h1>
+    <p class="tag">Photograph a pile. Get one drop-off plan.</p>
+  </header>
+  <main id="view"></main>
+</div>
+
+<nav>
+  <button data-tab="donate" aria-current="true">Donate</button>
+  <button data-tab="board">Neighbourhood</button>
+</nav>
+
+<script>
+const $ = (h) => { const t = document.createElement('template');
+                   t.innerHTML = h.trim(); return t.content; };
+const view = document.getElementById('view');
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const state = { radius: 5, coords: null, run: null, answers: {}, plan: null };
+
+/* ---------- screens ---------- */
+
+function setup(msg) {
+  view.replaceChildren($(`
+    ${msg ? `<div class="card err">${esc(msg)}</div>` : ''}
+    <h2>How far will you go?</h2>
+    <div class="card">
+      <div class="radius"><b id="rv">${state.radius} mi</b>
+        <i>organisations outside this are never suggested</i></div>
+      <input type="range" id="r" min="1" max="25" value="${state.radius}">
+    </div>
+    <h2>Your pile</h2>
+    <label class="shoot">
+      Take a photo
+      <input type="file" id="photo" accept="image/*" capture="environment">
+    </label>
+    <p class="note" id="loc">Finding your location&hellip;</p>
+  `));
+
+  const r = document.getElementById('r'), rv = document.getElementById('rv');
+  r.oninput = () => { state.radius = +r.value; rv.textContent = r.value + ' mi'; };
+  document.getElementById('photo').onchange = (e) =>
+    e.target.files[0] && upload(e.target.files[0]);
+
+  locate();
+}
+
+function locate() {
+  const el = document.getElementById('loc');
+  if (!navigator.geolocation) { fallback(el, 'This browser has no location.'); return; }
+  navigator.geolocation.getCurrentPosition(
+    (p) => { state.coords = [p.coords.latitude, p.coords.longitude];
+             el.textContent = 'Using your current location.'; },
+    () => fallback(el, 'Location unavailable.'),
+    { timeout: 8000 }
+  );
+}
+
+function fallback(el, why) {
+  // Washington DC. Said out loud rather than silently assumed -- a plan built
+  // around the wrong city is worse than one that admits where it thinks you are.
+  state.coords = [38.9150, -77.0200];
+  el.textContent = why + ' Using Washington DC for this demo.';
+}
+
+function busy(text) {
+  view.replaceChildren($(`<div class="center"><span class="spin"></span>${esc(text)}</div>`));
+}
+
+async function upload(file) {
+  busy('Looking at your pile…');
+  const fd = new FormData();
+  fd.append('photo', file);
+  fd.append('latitude', state.coords[0]);
+  fd.append('longitude', state.coords[1]);
+  fd.append('radius_miles', state.radius);
+  try {
+    state.run = await post('/runs', { body: fd });
+    state.answers = {};
+    found();
+  } catch (e) { setup(e.message); }
+}
+
+function found() {
+  const { items, questions } = state.run;
+  const list = items.map(i => `
+    <div class="item"><span class="qty">${i.quantity}</span>
+      <div>
+        <div>${esc(i.label)}</div>
+        ${i.description ? `<div class="desc">${esc(i.description)}</div>` : ''}
+      </div>
+    </div>`).join('');
+
+  const asked = questions.map(q => `
+    <div class="card q" data-item="${esc(q.item_id)}">
+      <p>${esc(q.question)}</p>
+      <div class="stake">${esc(q.at_stake)}</div>
+      <div class="choices">
+        <button data-a="good">Good</button>
+        <button data-a="worn">Worn</button>
+      </div>
+    </div>`).join('');
+
+  view.replaceChildren($(`
+    <h2>${items.length} thing${items.length === 1 ? '' : 's'} found</h2>
+    <div class="card">${list}</div>
+    ${questions.length ? `<h2>One thing to check</h2>${asked}` : ''}
+    <p class="note">${questions.length
+      ? `Only ${questions.length} of ${items.length} needed asking &mdash; the rest were decided from the data.`
+      : 'Nothing needed asking. Condition would not change where anything goes.'}</p>
+    <button id="go"${questions.length ? ' disabled' : ''}>Build my plan</button>
+  `));
+
+  const go = document.getElementById('go');
+  view.querySelectorAll('.q').forEach(card => {
+    card.querySelectorAll('button').forEach(b => b.onclick = () => {
+      card.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', 'false'));
+      b.setAttribute('aria-pressed', 'true');
+      state.answers[card.dataset.item] = b.dataset.a;
+      go.disabled = Object.keys(state.answers).length < questions.length;
+    });
+  });
+  go.onclick = plan;
+}
+
+async function plan() {
+  busy('Checking every organisation nearby…');
+  try {
+    state.plan = await post(`/runs/${state.run.run_id}/plan`,
+      { json: { answers: state.answers } });
+    showPlan();
+  } catch (e) { found(); alert(e.message); }
+}
+
+function showPlan() {
+  const p = state.plan;
+  const aged = new Set((p.verification_offers || []).map(o => o.org_id));
+
+  const stops = p.stops.map((s, n) => {
+    const offer = (p.verification_offers || []).find(o => o.org_id === s.org_id);
+    return `
+    <div class="card${aged.has(s.org_id) ? ' aged' : ''}">
+      <span class="stop-n">Stop ${n + 1} &middot; ${s.distance_mi} mi</span>
+      <p class="org">${esc(s.org)}</p>
+      <p class="meta">${esc(s.address)}<br>${esc(s.hours)}</p>
+      ${s.items.map(i => `
+        <div class="item"><span class="qty">${i.units}</span>
+          <div>${esc(i.category.replace(/_/g, ' '))}</div></div>
+        <div class="why${i.needed_now ? '' : ' surplus'}">${esc(i.why)}</div>`).join('')}
+      ${offer ? `
+        <div class="why" style="background:transparent;padding:12px 0 0">
+          Their list was last updated <b>${offer.days_since_confirmed} days ago</b>.
+          <div style="margin-top:10px">
+            <button class="small ghost" data-verify="${esc(s.org_id)}">
+              Email them and ask</button>
+          </div>
+          <pre class="draft" hidden data-draft="${esc(s.org_id)}"></pre>
+        </div>` : ''}
+    </div>`;
+  }).join('');
+
+  const left = (p.resolved || []).map(r => `
+    <div class="card left${r.counts_as_recovery ? ' reuse' : ''}">
+      <p class="org">${esc(r.headline)}
+        <span class="badge">${r.counts_as_recovery ? 'reuse' : r.outcome}</span></p>
+      <p class="meta" style="margin:0">${esc(r.detail)}</p>
+    </div>`).join('');
+
+  view.replaceChildren($(`
+    <h2>${p.stops.length} stop${p.stops.length === 1 ? '' : 's'}, ${esc(p.radius_mi)} mi radius</h2>
+    ${stops || '<div class="card">Nothing inside your radius could take these.</div>'}
+    ${left ? `<h2>Everything else</h2>${left}
+      <p class="note">Recovery counts reuse by a named organisation. Recycling and
+      disposal are shown separately and never counted as a save.</p>` : ''}
+    <button class="ghost" id="again" style="margin-top:16px">Start again</button>
+  `));
+
+  document.getElementById('again').onclick = () => setup();
+  view.querySelectorAll('[data-verify]').forEach(b => b.onclick = async () => {
+    const pre = view.querySelector(`[data-draft="${b.dataset.verify}"]`);
+    b.disabled = true; b.textContent = 'Drafting…';
+    try {
+      const d = await post(`/runs/${state.run.run_id}/verify/${b.dataset.verify}`, {});
+      pre.textContent = `To: ${d.to}\nSubject: ${d.subject}\n\n${d.body}`;
+      pre.hidden = false;
+      b.textContent = 'Draft ready — nothing sent yet';
+    } catch (e) { b.textContent = e.message; b.disabled = false; }
+  });
+}
+
+async function board() {
+  busy('Reading the neighbourhood…');
+  const d = await fetch('/dashboard').then(r => r.json());
+  const trends = (d.trends || []).map(t =>
+    `<div class="card"><p style="margin:0">${esc(t.headline)}</p></div>`).join('');
+  const gaps = (d.gaps || []).map(g =>
+    `<div class="card"><p style="margin:0">${esc(g.headline)}</p></div>`).join('');
+
+  view.replaceChildren($(`
+    <h2>This week</h2>
+    <div class="card stat">
+      <div><b>${d.items_routed}</b><span>routed</span></div>
+      <div><b>${d.reused_by_an_org}</b><span>reused</span></div>
+      <div><b>${Math.round((d.recovery_rate || 0) * 100)}%</b><span>recovery</span></div>
+    </div>
+    ${trends ? `<h2>Trends</h2>${trends}` : ''}
+    ${gaps ? `<h2>Still wanted</h2>${gaps}` : ''}
+    ${!trends && !gaps
+      ? '<div class="card"><p style="margin:0">No drop-offs recorded yet. This fills in as donations are confirmed.</p></div>'
+      : ''}
+    <p class="note">${esc(d.note || '')}</p>
+  `));
+}
+
+/* ---------- plumbing ---------- */
+
+async function post(url, { body, json }) {
+  const opts = { method: 'POST' };
+  if (json) { opts.headers = { 'Content-Type': 'application/json' };
+              opts.body = JSON.stringify(json); }
+  if (body) opts.body = body;
+  const r = await fetch(url, opts);
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d.detail || `Something went wrong (${r.status}).`);
+  }
+  return r.json();
+}
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button')
+    .forEach(x => x.setAttribute('aria-current', String(x === b)));
+  b.dataset.tab === 'board' ? board() : setup();
+});
+
+setup();
+</script>
+</body>
+</html>

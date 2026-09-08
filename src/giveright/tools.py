@@ -125,7 +125,7 @@ def build_tools(ws: Workspace) -> list:
                     "at_stake": question.at_stake,
                 },
             )
-            condition = _parse_condition(answer)
+            condition = parse_condition(answer)
             item = ws.item(question.item_id)
             if item is not None and condition is not None:
                 item.condition = condition
@@ -442,7 +442,7 @@ def _distance(ws: Workspace, org) -> float:
     return haversine_km(ws.origin[0], ws.origin[1], org.lat, org.lng)
 
 
-def _parse_condition(answer) -> Condition | None:
+def parse_condition(answer) -> Condition | None:
     """Donors answer in words, not enums."""
     text = str(answer).strip().lower()
     for word, condition in _CONDITION_WORDS.items():

@@ -20,18 +20,23 @@ import shutil
 import tempfile
 from datetime import date
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
 from .corpus import load_orgs
 from .fallback import decline_reason_for, resolve
 from .geo import km
-from .matching import build_plan
+from .matching import build_plan, clarifications
 from .models import ItemState
-from .outreach import confirmation_message
+from .outreach import confirmation_message, verification_message
 from .observations import ObservationLog, record_delivery
 from .session import Workspace
 from .state import transition
+from .text import plural
+from .tools import parse_condition
 from .trends import DonationEvent, Ledger, dashboard
 from .vision import identify
 
@@ -47,6 +52,16 @@ app = FastAPI(
 
 def _workspace(lat: float, lng: float, radius_miles: float) -> Workspace:
     return Workspace.open((lat, lng), radius_miles=radius_miles)
+
+
+STATIC = Path(__file__).resolve().parent / "static"
+
+
+@app.get("/", include_in_schema=False)
+def ui() -> FileResponse:
+    """The donor-facing app. Mobile first, because the premise is photographing
+    a pile in your hallway -- `capture="environment"` opens the phone camera."""
+    return FileResponse(STATIC / "index.html")
 
 
 @app.get("/health")
@@ -94,18 +109,41 @@ def orgs() -> dict:
     }
 
 
-@app.post("/donations")
-async def donate(
+_SESSIONS: dict[str, Workspace] = {}
+
+# A demo holds runs in memory. One process, no eviction: fine for a single
+# instance and a live demo, wrong for anything real -- a second instance would
+# not find the session, and a restart drops them all.
+MAX_SESSIONS = 64
+
+
+def _remember(ws: Workspace) -> str:
+    if len(_SESSIONS) >= MAX_SESSIONS:
+        _SESSIONS.pop(next(iter(_SESSIONS)))
+    run_id = uuid4().hex[:12]
+    _SESSIONS[run_id] = ws
+    return run_id
+
+
+def _session(run_id: str) -> Workspace:
+    ws = _SESSIONS.get(run_id)
+    if ws is None:
+        raise HTTPException(404, "that run has expired -- start again from the photo")
+    return ws
+
+
+@app.post("/runs")
+async def start_run(
     photo: UploadFile = File(..., description="a photograph of the pile"),
     latitude: float = Form(...),
     longitude: float = Form(...),
     radius_miles: float = Form(5.0),
 ) -> dict:
-    """Photograph in, drop-off plan out.
+    """Photograph in, items and any questions out.
 
-    The radius is applied before anything else and is never widened server-side.
-    Items nobody will take are resolved down the reuse-or-recycle chain rather
-    than returned as "no match".
+    Stops before planning, because the donor may need to answer something first.
+    Only items whose condition would change their destination produce a
+    question -- everything else is decided without asking.
     """
     if radius_miles <= 0:
         raise HTTPException(400, "radius_miles must be greater than zero")
@@ -129,7 +167,51 @@ async def donate(
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    questions = clarifications(
+        list(ws.items.values()), ws.orgs, ws.origin, ws.radius_km
+    )
+    return {
+        "run_id": _remember(ws),
+        "items": [
+            {
+                "item_id": i.id,
+                "category": i.category,
+                "label": plural(i.category),
+                "description": i.description,
+                "quantity": i.quantity,
+                "condition": i.condition.name.lower() if i.condition else None,
+                "note": i.attributes.get("note", ""),
+            }
+            for i in ws.items.values()
+        ],
+        "questions": [q.as_dict() for q in questions],
+    }
+
+
+class Answers(BaseModel):
+    """Condition answers, keyed by item id. Free text -- donors say "a bit worn",
+    not "POOR"."""
+
+    answers: dict[str, str] = Field(default_factory=dict)
+
+
+@app.post("/runs/{run_id}/plan")
+def make_plan(run_id: str, body: Answers) -> dict:
+    """Answer the questions and get the drop-off plan.
+
+    Every unplaced item is resolved down the reuse-or-recycle chain here, so
+    nothing comes back as "no match found".
+    """
+    ws = _session(run_id)
+
+    for item_id, answer in body.answers.items():
+        item = ws.item(item_id)
+        condition = parse_condition(answer)
+        if item is not None and condition is not None:
+            item.condition = condition
+
     plan = build_plan(list(ws.items.values()), ws.orgs, ws.origin, ws.radius_km)
+    ws.plan = plan
 
     resolved = []
     for item, why in plan.unplaced:
@@ -140,13 +222,37 @@ async def donate(
         payload["why_no_org_took_it"] = why
         resolved.append(payload)
 
-    body = plan.as_dict()
-    body["resolved"] = resolved
-    body["messages"] = [
-        confirmation_message(stop.org, [i for i, _u, _e in stop.lines]).as_dict()
+    body_out = plan.as_dict()
+    body_out["run_id"] = run_id
+    body_out["resolved"] = resolved
+    body_out["messages"] = [
+        confirmation_message(stop.org, stop.manifest()).as_dict()
         for stop in plan.stops
     ]
-    return body
+    return body_out
+
+
+@app.post("/runs/{run_id}/verify/{org_id}")
+def draft_verification(run_id: str, org_id: str) -> dict:
+    """The email that asks whether an aged need is still live.
+
+    Returned as a draft for the donor to approve or add to. Nothing is sent by
+    this endpoint, and nothing about the corpus changes by asking.
+    """
+    ws = _session(run_id)
+    org = ws.org(org_id)
+    if org is None or ws.plan is None:
+        raise HTTPException(404, f"no organisation {org_id} on this run")
+
+    stop = next((s for s in ws.plan.stops if s.org.id == org_id), None)
+    if stop is None:
+        raise HTTPException(404, f"{org_id} is not on the plan")
+
+    aged = stop.aged_categories()
+    message = verification_message(org, stop.manifest(), aged or [
+        i.category for i in stop.manifest()
+    ])
+    return {"to": org.email, **message.as_dict()}
 
 
 @app.get("/dashboard")

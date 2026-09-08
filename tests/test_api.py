@@ -20,29 +20,65 @@ def test_every_need_shown_to_a_donor_carries_its_age(client):
             assert need["last_verified"]
 
 
-def test_a_donation_returns_a_plan_and_leaves_nothing_unanswered(client):
+def start_run(client, radius=8):
     with open("data/fixtures/pile_01.json", "rb") as fh:
-        response = client.post(
-            "/donations",
+        return client.post(
+            "/runs",
             files={"photo": ("pile_01.jpg", fh, "image/jpeg")},
-            data={"latitude": 38.9150, "longitude": -77.0200, "radius_miles": 8},
+            data={"latitude": 38.9150, "longitude": -77.0200, "radius_miles": radius},
         )
 
-    body = response.json()
-    assert response.status_code == 200
+
+def test_a_run_stops_to_ask_before_it_plans(client):
+    """The donor answers before the plan is built, not after -- otherwise the
+    question is decoration."""
+    body = start_run(client).json()
+
+    assert len(body["items"]) == 6
+    assert [q["item_id"] for q in body["questions"]] == ["pile_01_02"]
+    assert body["questions"][0]["at_stake"]
+    assert body["run_id"]
+
+
+def test_the_answer_changes_the_plan(client):
+    run = start_run(client).json()["run_id"]
+
+    worn = client.post(f"/runs/{run}/plan", json={"answers": {"pile_01_02": "worn"}}).json()
+    stop = next(s for s in worn["stops"]
+                if any(i["item_id"] == "pile_01_02" for i in s["items"]))
+
+    assert stop["org_id"] == "dev_eastside_closet"
+
+
+def test_a_plan_leaves_nothing_unanswered(client):
+    run = start_run(client).json()["run_id"]
+    body = client.post(f"/runs/{run}/plan", json={"answers": {}}).json()
+
     assert body["stops"]
     assert len(body["resolved"]) == len(body["unplaced"])
-    assert body["messages"], "each stop gets a one-tap confirmation to send"
+    assert body["messages"], "each stop gets a confirmation email to send"
+
+
+def test_an_expired_run_says_so_rather_than_failing_oddly(client):
+    r = client.post("/runs/nosuchrun/plan", json={"answers": {}})
+    assert r.status_code == 404
+    assert "expired" in r.json()["detail"]
+
+
+def test_the_verification_draft_asks_without_changing_anything(client):
+    run = start_run(client).json()["run_id"]
+    plan = client.post(f"/runs/{run}/plan", json={"answers": {}}).json()
+    offer = plan["verification_offers"][0]
+
+    draft = client.post(f"/runs/{run}/verify/{offer['org_id']}").json()
+
+    assert "TAKE THESE" in draft["body"]
+    assert "days ago" in draft["body"]
+    assert draft["to"]
 
 
 def test_a_zero_radius_is_rejected_rather_than_quietly_widened(client):
-    with open("data/fixtures/pile_01.json", "rb") as fh:
-        response = client.post(
-            "/donations",
-            files={"photo": ("pile_01.jpg", fh, "image/jpeg")},
-            data={"latitude": 38.9, "longitude": -77.0, "radius_miles": 0},
-        )
-    assert response.status_code == 400
+    assert start_run(client, radius=0).status_code == 400
 
 
 def test_the_dashboard_only_counts_confirmed_drop_offs(client):
