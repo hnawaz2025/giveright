@@ -163,7 +163,7 @@ async def start_run(
         with path.open("wb") as fh:
             shutil.copyfileobj(photo.file, fh)
         try:
-            ws.add(identify(path, ws.vocabulary))
+            ws.add(identify(path, ws.vocabulary, use_fixture=False))
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
 

@@ -9,7 +9,19 @@ from giveright.api import app
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    """The API path no longer consults the name-keyed fixtures, so the model is
+    stubbed here rather than smuggled in through a cache. Same bytes, same
+    result, still no network."""
+    import json as _json
+
+    from giveright.vision import Pile
+
+    pile = Pile(**_json.loads(open("data/fixtures/pile_01.json").read()))
     monkeypatch.setattr("giveright.trends.LEDGER_FILE", tmp_path / "ledger.jsonl")
+    monkeypatch.setattr("giveright.vision.RUNTIME_CACHE_DIR", tmp_path / "cache")
+    monkeypatch.setattr(
+        "giveright.vision._identify_with_model", lambda p, v, model=None: pile
+    )
     return TestClient(app)
 
 
@@ -35,17 +47,21 @@ def test_a_run_stops_to_ask_before_it_plans(client):
     body = start_run(client).json()
 
     assert len(body["items"]) == 6
-    assert [q["item_id"] for q in body["questions"]] == ["pile_01_02"]
+    assert len(body["questions"]) == 1, "only the towels' condition changes a destination"
+    towels = next(i for i in body["items"] if i["category"] == "towels")
+    assert body["questions"][0]["item_id"] == towels["item_id"]
     assert body["questions"][0]["at_stake"]
     assert body["run_id"]
 
 
 def test_the_answer_changes_the_plan(client):
-    run = start_run(client).json()["run_id"]
+    run = start_run(client).json()
+    towels = next(i for i in run["items"] if i["category"] == "towels")["item_id"]
 
-    worn = client.post(f"/runs/{run}/plan", json={"answers": {"pile_01_02": "worn"}}).json()
+    worn = client.post(f"/runs/{run['run_id']}/plan",
+                       json={"answers": {towels: "worn"}}).json()
     stop = next(s for s in worn["stops"]
-                if any(i["item_id"] == "pile_01_02" for i in s["items"]))
+                if any(i["item_id"] == towels for i in s["items"]))
 
     assert stop["org_id"] == "dev_eastside_closet"
 

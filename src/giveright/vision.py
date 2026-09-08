@@ -7,9 +7,13 @@ not say "the shelter needs car seats".
 
 Two things keep the rest of the system cheap and testable:
 
-  * identification is cached to `data/fixtures/<name>.json`, so the matcher,
-    the ranker and the fallback chain are developed and tested against a real
-    pile with zero Bedrock calls;
+  * identification is cached, so the matcher, the ranker and the fallback chain
+    are developed and tested against a real pile with zero Bedrock calls. There
+    are two caches and the difference matters: `data/fixtures/<name>.json` is
+    committed and keyed by filename, for development; the runtime cache is
+    keyed by a hash of the image bytes and is gitignored. Keying a live upload
+    by filename was a real bug -- phone cameras name every capture `image.jpg`,
+    so a second photo was served the first photo's answer;
   * the model is asked to choose from the corpus vocabulary, and anything it
     invents is kept verbatim rather than coerced -- an unknown category is a
     real answer that the fallback chain handles, and silently renaming it to
@@ -18,6 +22,7 @@ Two things keep the rest of the system cheap and testable:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -27,6 +32,9 @@ from .llm import VISION_MODEL_ID, bedrock
 from .models import Condition, Item
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "data" / "fixtures"
+
+# Gitignored. Answers about real uploads, keyed by the image's own bytes.
+RUNTIME_CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "cache"
 
 _FORMATS = {".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png", ".webp": "webp", ".gif": "gif"}
 
@@ -46,14 +54,31 @@ If nothing fits, write a short snake_case category of your own rather than
 forcing it into one of the above -- a wrong category sends the item to the
 wrong place.
 
+**Never infer who something belongs to.** A photograph does not show you the
+age, size or gender of the person a garment is for. Do not call a shirt
+children's clothing because it looks small, or menswear because it looks plain.
+Choose a narrow category like that only when the photograph contains actual
+evidence -- a readable size label, a print or cut that is unambiguously for a
+small child, a recognisable school uniform. Otherwise use the plain category
+for the thing itself: `shirts`, `trousers`, `shoes`, `coats`. A broader category
+that is true beats a narrower one that is a guess, because the donor is asked
+about anything that turns out to matter.
+
+The same rule applies to everything you cannot see. Report the object, not the
+story around it.
+
 For each item:
+  * category: what the thing is, at the narrowest level the photograph actually
+    supports.
   * quantity: how many you can actually see. Do not estimate what might be
     underneath.
-  * condition_hint: only what is visible -- stains, tears, missing parts. Leave
-    it null if the photo does not show you. A guess here is worse than a gap,
-    because the donor will be asked when it matters.
-  * note: anything that changes where it can go (a size, a label, a date stamp
-    on a car seat, visible damage).
+  * condition_hint: only what is visible -- stains, tears, missing parts, or
+    obvious newness like an attached tag. Leave it null if the photo does not
+    show you, which is the usual case. A guess here is worse than a gap,
+    because the donor is asked whenever the answer would change the plan.
+  * note: anything visible that changes where it can go -- a size label you can
+    actually read, a date stamp on a car seat, visible damage. Leave it empty
+    rather than filling it with an impression.
 
 Do not include rubbish, packaging, or the floor.
 """
@@ -101,10 +126,26 @@ def to_items(pile: Pile, *, prefix: str = "item") -> list[Item]:
 
 
 def cache_path(image_path: Path, cache_dir: Path | None = None) -> Path:
+    """Where a committed development fixture lives, keyed by filename."""
     return (cache_dir or FIXTURE_DIR) / f"{Path(image_path).stem}.json"
 
 
+def _digest(image_path: Path) -> str:
+    return hashlib.sha256(image_path.read_bytes()).hexdigest()[:16]
+
+
+def runtime_cache_path(image_path: Path) -> Path:
+    """Where a real upload's answer lives, keyed by the image's own bytes.
+
+    Filenames cannot be trusted: every iPhone camera capture arrives as
+    `image.jpg`. Two different photos must never collide, and re-uploading the
+    same photo should not cost a second Bedrock call.
+    """
+    return RUNTIME_CACHE_DIR / f"{_digest(image_path)}.json"
+
+
 def load_cached(image_path: Path, cache_dir: Path | None = None) -> list[Item] | None:
+    """A committed fixture, by name. The image itself need not exist on disk."""
     path = cache_path(image_path, cache_dir)
     if not path.exists():
         return None
@@ -118,6 +159,7 @@ def identify(
     model=None,
     cache_dir: Path | None = None,
     use_cache: bool = True,
+    use_fixture: bool = True,
 ) -> list[Item]:
     """Identify a pile, reading the cached answer when there is one.
 
@@ -126,7 +168,10 @@ def identify(
     """
     image_path = Path(image_path)
 
-    if use_cache:
+    # Committed development fixtures, by filename. Never consulted for a real
+    # upload: a photo that happened to be called pile_01.jpg would otherwise be
+    # answered with the demo pile.
+    if use_fixture:
         cached = load_cached(image_path, cache_dir)
         if cached is not None:
             return cached
@@ -137,13 +182,20 @@ def identify(
             f"{cache_path(image_path, cache_dir)}"
         )
 
+    # From here the answer is about *these bytes*, so everything is keyed on
+    # them. Nothing is written into the committed fixtures directory.
+    runtime = runtime_cache_path(image_path)
+    prefix = _digest(image_path)
+
+    if use_cache and runtime.exists():
+        return to_items(Pile(**json.loads(runtime.read_text())), prefix=prefix)
+
     pile = _identify_with_model(image_path, vocabulary, model=model)
 
-    path = cache_path(image_path, cache_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(pile.model_dump(), indent=2) + "\n")
+    runtime.parent.mkdir(parents=True, exist_ok=True)
+    runtime.write_text(json.dumps(pile.model_dump(), indent=2) + "\n")
 
-    return to_items(pile, prefix=image_path.stem)
+    return to_items(pile, prefix=prefix)
 
 
 def _identify_with_model(image_path: Path, vocabulary: list[str], *, model=None) -> Pile:
