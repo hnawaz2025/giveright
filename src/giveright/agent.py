@@ -16,10 +16,9 @@ from pathlib import Path
 
 from strands import Agent
 
+from .llm import AGENT_MODEL_ID, bedrock
 from .session import Workspace
 from .tools import build_tools
-
-DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 SYSTEM_PROMPT = """\
 You are GiveRight. Someone has a pile of things they no longer want, and a
@@ -84,15 +83,13 @@ def build_agent(
     ws: Workspace,
     *,
     model=None,
-    model_id: str = DEFAULT_MODEL_ID,
+    model_id: str = AGENT_MODEL_ID,
     **kwargs,
 ) -> Agent:
     """Wire the toolset to a model. `model` is injected in tests so nothing here
     requires Bedrock credentials to import."""
     if model is None:
-        from strands.models import BedrockModel
-
-        model = BedrockModel(model_id=model_id)
+        model = bedrock(model_id)
 
     return Agent(
         model=model,

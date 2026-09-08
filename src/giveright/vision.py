@@ -23,11 +23,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from .llm import VISION_MODEL_ID, bedrock
 from .models import Condition, Item
 
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "data" / "fixtures"
-
-DEFAULT_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 _FORMATS = {".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png", ".webp": "webp", ".gif": "gif"}
 
@@ -150,14 +149,13 @@ def identify(
 def _identify_with_model(image_path: Path, vocabulary: list[str], *, model=None) -> Pile:
     """The only Bedrock call in the identification path."""
     from strands import Agent
-    from strands.models import BedrockModel
 
     suffix = image_path.suffix.lower()
     if suffix not in _FORMATS:
         raise ValueError(f"unsupported image type {suffix!r}; use one of {sorted(_FORMATS)}")
 
     agent = Agent(
-        model=model or BedrockModel(model_id=DEFAULT_MODEL_ID),
+        model=model or bedrock(VISION_MODEL_ID),
         system_prompt=(
             "You identify donatable items in photographs. You report only what "
             "is visible. You never speculate about condition you cannot see."
