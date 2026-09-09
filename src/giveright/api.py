@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from . import registry
 from .corpus import load_orgs
 from .fallback import decline_reason_for, resolve
-from .geo import km
+from .geo import haversine_km, km
 from .matching import apply_answers, build_plan, clarifications
 from .models import ItemState
 from .outreach import confirmation_message, verification_message
@@ -55,6 +55,7 @@ def _workspace(lat: float, lng: float, radius_miles: float) -> Workspace:
 
 
 STATIC = Path(__file__).resolve().parent / "static"
+MAP_LIMIT = 300   # plotted; the true count in radius is reported alongside
 SAMPLE_PILE = Path(__file__).resolve().parents[2] / "data" / "fixtures" / "pile_01.jpg"
 
 
@@ -89,17 +90,32 @@ def orgs(
     # registry organisation inside the radius comes too -- that is the whole
     # point of the registry, and it is why the map can show a donor anywhere in
     # the country who is actually near them.
+    shown_all = True
     if latitude is not None and longitude is not None:
+        origin, radius_km = (latitude, longitude), km(radius_miles)
+
+        # Curated organisations are filtered by the radius too. They used to be
+        # returned wherever the pin was, which plotted three Washington
+        # fixtures on a map of Los Angeles.
+        curated = [
+            o for o in curated
+            if haversine_km(latitude, longitude, o.lat, o.lng) <= radius_km
+        ]
         known = {o.id for o in curated}
-        nearby = registry.near((latitude, longitude), km(radius_miles))
+        nearby = registry.near(origin, radius_km, limit=MAP_LIMIT)
         found = curated + [o for o in nearby if o.id not in known]
+        in_radius = registry.count_near(origin, radius_km)
+        shown_all = len(nearby) >= in_radius
     else:
         found = curated
+        in_radius = 0
 
     return {
         "counts": {
             "curated": len(curated),
             "registry": len(found) - len(curated),
+            "registry_in_radius": in_radius,
+            "showing_all": shown_all,
             "registry_total": registry.count(),
         },
         "organisations": [

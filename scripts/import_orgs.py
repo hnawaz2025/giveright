@@ -1,6 +1,7 @@
 """Build the national organization registry from the IRS Business Master File.
 
-    python scripts/import_orgs.py --states DC MD VA
+    python scripts/import_orgs.py --states all          # the whole country
+    python scripts/import_orgs.py --states DC MD VA     # one metro area
     python scripts/import_orgs.py --states CA --limit 2000
 
 Three stages, each of which can be re-run without redoing the others:
@@ -24,6 +25,7 @@ import csv
 import io
 import json
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -42,6 +44,12 @@ from giveright.registry import (  # noqa: E402
 BMF_FILES = [f"https://www.irs.gov/pub/irs-soi/eo{n}.csv" for n in (1, 2, 3, 4)]
 CENSUS_BATCH = "https://geocoding.geo.census.gov/geocoder/locations/addressbatch"
 CENSUS_LIMIT = 10_000                       # per the Census batch API
+
+ALL_STATES = (
+    "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN "
+    "MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA "
+    "WV WI WY PR VI GU AS MP"
+).split()
 
 CACHE = Path(__file__).resolve().parents[1] / "data" / "cache"
 GEOCACHE = CACHE / "geocoded.jsonl"
@@ -123,47 +131,41 @@ def key_for(row: dict) -> str:
     ).upper()
 
 
-def geocode(rows: list[dict], cache: dict[str, tuple[float, float]]) -> dict:
-    """Census batch geocoder, in chunks, skipping anything already known.
+def geocode_chunk(chunk: list[dict]) -> dict[str, tuple[float, float]]:
+    """One batch through the Census geocoder, or nothing.
 
-    Unmatched addresses are dropped rather than approximated. A ZIP centroid
-    would put an organization up to a mile from where it is, and this product
-    tells people how far to drive.
+    The network boundary catches everything, deliberately. A run that has spent
+    an hour geocoding must not be lost because urllib raised a class that was
+    not on a list -- RemoteDisconnected is not a URLError, and finding that out
+    after 47,000 addresses is an expensive way to learn it.
     """
-    todo = [r for r in rows if key_for(r) not in cache]
-    log(f"  {len(rows) - len(todo)} already geocoded, {len(todo)} to do")
+    payload = io.StringIO()
+    writer = csv.writer(payload)
+    for n, row in enumerate(chunk):
+        writer.writerow(
+            [n, row["STREET"], row["CITY"], row["STATE"], (row["ZIP"] or "")[:5]]
+        )
 
-    for start in range(0, len(todo), CENSUS_LIMIT):
-        chunk = todo[start : start + CENSUS_LIMIT]
-        payload = io.StringIO()
-        writer = csv.writer(payload)
-        for n, row in enumerate(chunk):
-            writer.writerow(
-                [n, row["STREET"], row["CITY"], row["STATE"], (row["ZIP"] or "")[:5]]
-            )
-
-        log(f"  geocoding {start + 1}–{start + len(chunk)} of {len(todo)} …")
+    for attempt in (1, 2):
         try:
             body, headers = _multipart(payload.getvalue().encode())
             request = urllib.request.Request(CENSUS_BATCH, data=body, headers=headers)
-            with urllib.request.urlopen(request, timeout=600) as response:
+            with urllib.request.urlopen(request, timeout=900) as response:
                 result = response.read().decode("utf-8", "replace")
-        except (urllib.error.URLError, TimeoutError) as exc:
-            log(f"  ! geocoder failed on this chunk ({exc}); keeping what we have")
-            continue
+            break
+        except Exception as exc:  # noqa: BLE001 -- a network boundary
+            log(f"    ! attempt {attempt} failed ({type(exc).__name__}: {exc})")
+            if attempt == 2:
+                return {}
+            time.sleep(20)
 
-        found = {}
-        for line in csv.reader(io.StringIO(result)):
-            # id, input, match, exact, matched address, "lon,lat", tiger, side
-            if len(line) >= 6 and line[2] == "Match" and "," in line[5]:
-                lng, lat = line[5].split(",")[:2]
-                found[key_for(chunk[int(line[0])])] = (float(lat), float(lng))
-
-        cache.update(found)
-        remember(found)
-        log(f"    matched {len(found)} of {len(chunk)}")
-
-    return cache
+    found = {}
+    for line in csv.reader(io.StringIO(result)):
+        # id, input, match, exact, matched address, "lon,lat", tiger, side
+        if len(line) >= 6 and line[2] == "Match" and "," in line[5]:
+            lng, lat = line[5].split(",")[:2]
+            found[key_for(chunk[int(line[0])])] = (float(lat), float(lng))
+    return found
 
 
 def _multipart(csv_bytes: bytes) -> tuple[bytes, dict]:
@@ -189,15 +191,19 @@ def _multipart(csv_bytes: bytes) -> tuple[bytes, dict]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--states", nargs="+", required=True,
-                        help="two-letter codes, e.g. DC MD VA")
+                        help='two-letter codes, e.g. DC MD VA, or "all"')
     parser.add_argument("--limit", type=int, default=None,
                         help="stop after this many matching organizations")
     parser.add_argument("--out", default=None, help="registry path")
     args = parser.parse_args(argv)
 
-    states = {s.strip().upper() for s in args.states}
+    states = (
+        set(ALL_STATES)
+        if any(s.lower() == "all" for s in args.states)
+        else {s.strip().upper() for s in args.states}
+    )
     log(f"NTEE codes in scope: {', '.join(WANTED_NTEE)}")
-    log(f"states: {', '.join(sorted(states))}")
+    log(f"states: {'all 50 + DC and territories' if len(states) > 20 else ', '.join(sorted(states))}")
 
     rows = harvest(states, args.limit)
     log(f"{len(rows)} live 501(c)(3)s whose classification implies donated goods")
@@ -205,31 +211,53 @@ def main(argv: list[str] | None = None) -> int:
         log("nothing to import")
         return 1
 
-    cache = geocode(rows, load_geocache())
+    cache = load_geocache()
+    todo = [r for r in rows if key_for(r) not in cache]
+    log(f"  {len(rows) - len(todo)} already geocoded, {len(todo)} to do")
 
     path = Path(args.out) if args.out else None
     conn = connect(path)
-    entries = []
-    for row in rows:
-        located = cache.get(key_for(row))
-        if located is None:
-            continue
-        entries.append(
+    written, failed = 0, 0
+
+    # Save as we go. An import that only writes at the end throws away an
+    # hour's work the first time a chunk fails, which is exactly what happened.
+    def flush(subset: list[dict]) -> int:
+        entries = [
             Entry(
                 ein=row["EIN"], name=row["NAME"], street=row["STREET"],
                 city=row["CITY"], state=row["STATE"], zip=(row["ZIP"] or "")[:5],
                 ntee=(row["NTEE_CD"] or "").upper(),
-                lat=located[0], lng=located[1],
+                lat=cache[key_for(row)][0], lng=cache[key_for(row)][1],
                 source="IRS Exempt Organizations Business Master File",
                 imported_on=today_iso(),
             )
-        )
-    save(conn, entries)
-    conn.close()
+            for row in subset
+            if key_for(row) in cache
+        ]
+        save(conn, entries)
+        return len(entries)
 
-    log(f"imported {len(entries)} organizations "
-        f"({len(rows) - len(entries)} could not be geocoded and were dropped)")
-    log(f"registry now holds {count(path)}")
+    written += flush([r for r in rows if key_for(r) in cache])   # anything cached already
+
+    for start in range(0, len(todo), CENSUS_LIMIT):
+        chunk = todo[start : start + CENSUS_LIMIT]
+        log(f"  geocoding {start + 1}–{start + len(chunk)} of {len(todo)} …")
+        found = geocode_chunk(chunk)
+        if not found:
+            failed += len(chunk)
+            log("    chunk produced nothing; moving on")
+            continue
+        cache.update(found)
+        remember(found)
+        written += flush(chunk)
+        log(f"    matched {len(found)}; registry now holds {count(path)}")
+
+    conn.close()
+    log(f"imported {written} organizations")
+    if failed:
+        log(f"{failed} addresses were in chunks the geocoder refused -- "
+            f"re-run to retry just those, the rest are cached")
+    log(f"registry holds {count(path)}")
     return 0
 
 

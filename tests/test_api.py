@@ -207,3 +207,15 @@ class TestSampleRun:
 
     def test_a_zero_radius_is_still_refused(self, client):
         assert client.post("/runs/sample", params={"radius_miles": 0}).status_code == 400
+
+
+def test_organisations_far_from_the_pin_are_not_returned(client):
+    """Dragging the pin to another state must not keep plotting Washington."""
+    dc = client.get("/orgs", params={"latitude": 38.9150, "longitude": -77.0200,
+                                     "radius_miles": 10}).json()
+    la = client.get("/orgs", params={"latitude": 34.0522, "longitude": -118.2437,
+                                     "radius_miles": 10}).json()
+
+    assert dc["counts"]["curated"] == 3
+    assert la["counts"]["curated"] == 0
+    assert la["organisations"] == []

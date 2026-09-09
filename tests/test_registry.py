@@ -116,3 +116,34 @@ def test_reimporting_replaces_rather_than_duplicates(db):
     registry.save(conn, [entry(ein="x", name="NEW NAME")])
     found = registry.near(ORIGIN, 10.0, path=path)
     assert len(found) == 1 and found[0].name == "New Name"
+
+
+class TestDenseAreas:
+    """A city holds more organisations than anyone wants on a map. Showing the
+    nearest few hundred is fine; implying that is all of them is not."""
+
+    def crowd(self, conn, n):
+        registry.save(conn, [
+            entry(ein=f"e{i}", lat=ORIGIN[0] + i * 0.0002, lng=ORIGIN[1])
+            for i in range(n)
+        ])
+
+    def test_the_map_gets_the_nearest_ones(self, db):
+        path, conn = db
+        self.crowd(conn, 50)
+        found = registry.near(ORIGIN, 50.0, path=path, limit=10)
+        assert [o.id for o in found] == [f"irs_e{i}" for i in range(10)]
+
+    def test_the_true_count_is_available_even_when_capped(self, db):
+        path, conn = db
+        self.crowd(conn, 50)
+        assert len(registry.near(ORIGIN, 50.0, path=path, limit=10)) == 10
+        assert registry.count_near(ORIGIN, 50.0, path=path) == 50
+
+    def test_the_radius_still_binds_the_true_count(self, db):
+        path, conn = db
+        registry.save(conn, [
+            entry(ein="in", lat=ORIGIN[0] + 0.005),
+            entry(ein="out", lat=ORIGIN[0] + 4.0),
+        ])
+        assert registry.count_near(ORIGIN, 5.0, path=path) == 1

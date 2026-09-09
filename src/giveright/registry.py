@@ -237,16 +237,22 @@ def near(
             inside.append((distance, Entry(**dict(row))))
 
     inside.sort(key=lambda pair: pair[0])
-    if len(inside) > limit:
-        # Nearest-first, so what is dropped is what the donor was least likely
-        # to drive to -- but say so rather than pretending the radius was empty
-        # beyond this point.
-        truncated_at = inside[limit][0]
-        globals()["LAST_TRUNCATED_KM"] = truncated_at
     return [entry.as_org() for _d, entry in inside[:limit]]
 
 
-LAST_TRUNCATED_KM: float | None = None
+def count_near(
+    origin: tuple[float, float],
+    radius_km: float,
+    *,
+    path: Path | None = None,
+) -> int:
+    """How many are really in there, regardless of what `near` returned.
+
+    In a dense city the radius holds far more organisations than anyone wants
+    plotted, so `near` takes the closest few hundred. The donor is told the true
+    number rather than being left to assume the map is the whole story.
+    """
+    return len(near(origin, radius_km, path=path, limit=10_000_000))
 
 
 def count(path: Path | None = None) -> int:

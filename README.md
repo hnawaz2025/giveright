@@ -88,8 +88,15 @@ item, ranked below anywhere that has actually asked, with its reason saying so
 in as many words. Opening hours are left blank rather than invented.
 
 ```bash
-python scripts/import_orgs.py --states DC MD VA
+python scripts/import_orgs.py --states DC MD VA    # the shipped corpus
+python scripts/import_orgs.py --states all         # the whole country
 ```
+
+The shipped registry covers the DMV -- 5,532 organizations across DC, Maryland
+and Virginia. The importer is not region-specific; that is a decision about
+what ships, not about what it can do. Coverage thins realistically outside
+cities, which is why the radius runs to 50 miles: rural Shenandoah has nothing
+inside 5 miles, 14 inside 15, and 151 inside 50.
 
 That gap is the product, not a defect in it. `verify_with_org` emails a real
 donation offer, the reply seeds the first need, and coverage deepens exactly
@@ -216,7 +223,7 @@ whoever they like. The agent does not.
 
 ## Status
 
-Working end to end and under test (135 tests, no network, no credentials): the
+Working end to end and under test (142 tests, no network, no credentials): the
 domain model and item state machine, the organization corpus and its
 append-only observation log, distance ranking, the clarification rule, the
 no-dead-ends chain, the neighbourhood ledger, the twelve-tool Strands agent, an
@@ -267,7 +274,7 @@ data/pathways.yaml  reuse / recycle / disposal routes per category
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest                                  # 135 tests, no model, no network
+.venv/bin/pytest                                  # 142 tests, no model, no network
 .venv/bin/python -m giveright.demo --fresh --today 2026-09-07   # reproducible run
 .venv/bin/python -m giveright.demo --agent        # the same flow, driven by the model
 .venv/bin/uvicorn giveright.api:app --host 0.0.0.0   # the web app, on http://<your-ip>:8000

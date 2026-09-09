@@ -329,8 +329,12 @@ function drawRadius() {
   const el = document.getElementById('count');
   if (!el) return;
   const known = inside.filter(o => o.source === 'curated').length;
-  el.innerHTML = inside.length
-    ? `<b>${inside.length}</b> organisation${inside.length === 1 ? '' : 's'} in range` +
+  const total = state.counts ? state.counts.registry_in_radius + known : inside.length;
+  const capped = state.counts && !state.counts.showing_all;
+
+  el.innerHTML = total
+    ? `<b>${total}</b> organisation${total === 1 ? '' : 's'} in range` +
+      (capped ? ` <span style="opacity:.7">(nearest ${inside.length} shown)</span>` : '') +
       (known
         ? ` &middot; <b>${known}</b> ${known === 1 ? 'has' : 'have'} told us what they need`
         : ' &middot; none have told us what they need yet')
