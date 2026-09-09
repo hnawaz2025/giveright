@@ -13,4 +13,3 @@ data/ledger.jsonl
 data/observations.jsonl
 data/cache/
 data/held.jsonl
-data/registry.sqlite

@@ -93,7 +93,11 @@ python scripts/import_orgs.py --states all         # the whole country
 ```
 
 The shipped registry covers the DMV -- 5,532 organizations across DC, Maryland
-and Virginia. The importer is not region-specific; that is a decision about
+and Virginia -- and is committed, so a fresh clone has a working map without
+running anything. It is generated data in version control, which is a trade
+made deliberately: 2 MB against the alternative of someone opening this repo
+and finding an empty map. Rebuild or extend it whenever; the file is replaced,
+never merged. The importer is not region-specific; that is a decision about
 what ships, not about what it can do. Coverage thins realistically outside
 cities, which is why the radius runs to 50 miles: rural Shenandoah has nothing
 inside 5 miles, 14 inside 15, and 151 inside 50.
@@ -263,7 +267,7 @@ src/giveright/
   static/      the mobile web app: one file, no build step, no CDN
   demo.py      a terminal walkthrough
 data/orgs/     one YAML per organization, hand-curated, never machine-written
-data/registry.sqlite     the national registry, built by scripts/import_orgs.py
+data/registry.sqlite     5,532 DMV organizations; committed, rebuild any time
 data/observations.jsonl  deliveries and org replies, replayed onto the corpus
 data/held.jsonl          open promises to keep looking, closed by appending
 data/fixtures/ cached vision output, so the core is built without model calls
