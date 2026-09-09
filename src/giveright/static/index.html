@@ -201,6 +201,10 @@ function setup(msg) {
       Take a photo
       <input type="file" id="photo" accept="image/*" capture="environment">
     </label>
+    <button class="ghost small" id="sample" style="width:100%;margin-top:10px">
+      Or walk through a sample pile</button>
+    <p class="hint" style="margin-top:8px">The sample skips the camera and the
+      model. Everything after that is the real system.</p>
   `));
 
   const r = document.getElementById('r'), rv = document.getElementById('rv');
@@ -213,6 +217,7 @@ function setup(msg) {
   document.getElementById('here').onclick = locate;
   document.getElementById('photo').onchange = (e) =>
     e.target.files[0] && upload(e.target.files[0]);
+  document.getElementById('sample').onclick = sample;
 
   startMap();
 }
@@ -421,6 +426,17 @@ async function upload(file) {
   } catch (e) { setup(e.message); }
 }
 
+async function sample() {
+  busy('Loading the sample pile…');
+  const [lat, lng] = state.coords || DEFAULT_COORDS;
+  try {
+    state.run = await post(
+      `/runs/sample?latitude=${lat}&longitude=${lng}&radius_miles=${state.radius}`, {});
+    state.answers = {};
+    found();
+  } catch (e) { setup(e.message); }
+}
+
 function found() {
   const { items, questions } = state.run;
   const list = items.map(i => `
@@ -442,6 +458,8 @@ function found() {
     </div>`).join('');
 
   view.replaceChildren($(`
+    ${state.run.sample ? `<div class="card q"><p style="margin:0">Sample pile</p>
+      <div class="stake">${esc(state.run.note)}</div></div>` : ''}
     <h2>${items.length} thing${items.length === 1 ? '' : 's'} found</h2>
     <div class="card">${list}</div>
     ${questions.length

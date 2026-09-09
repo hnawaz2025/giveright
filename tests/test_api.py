@@ -179,3 +179,31 @@ class TestModelFailures:
 
         self.raising(monkeypatch, NoCredentialsError())
         assert "items" not in self.upload(client).json()
+
+
+class TestSampleRun:
+    """The sample exists so the product can be shown without credentials. It
+    must be the real system downstream, and must never pretend to be a photo."""
+
+    def test_it_runs_the_whole_flow_with_no_model(self, client):
+        run = client.post("/runs/sample", params={"radius_miles": 8}).json()
+
+        assert run["sample"] is True
+        assert "sample pile" in run["note"].lower()
+        assert len(run["items"]) == 6
+        assert len(run["questions"]) == 1
+
+        plan = client.post(f"/runs/{run['run_id']}/plan", json={"answers": {}}).json()
+        assert plan["stops"] and plan["resolved"]
+
+    def test_it_is_the_same_matcher_as_a_real_photo(self, client):
+        """Only identification is pre-computed. If the sample diverged from the
+        real path it would be a demo of something that does not exist."""
+        sample = client.post("/runs/sample", params={"radius_miles": 8}).json()
+        real = start_run(client).json()
+
+        assert ([i["category"] for i in sample["items"]]
+                == [i["category"] for i in real["items"]])
+
+    def test_a_zero_radius_is_still_refused(self, client):
+        assert client.post("/runs/sample", params={"radius_miles": 0}).status_code == 400

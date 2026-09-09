@@ -55,6 +55,7 @@ def _workspace(lat: float, lng: float, radius_miles: float) -> Workspace:
 
 
 STATIC = Path(__file__).resolve().parent / "static"
+SAMPLE_PILE = Path(__file__).resolve().parents[2] / "data" / "fixtures" / "pile_01.jpg"
 
 
 @app.get("/", include_in_schema=False)
@@ -249,18 +250,58 @@ async def start_run(
     )
     return {
         "run_id": _remember(ws),
-        "items": [
-            {
-                "item_id": i.id,
-                "category": i.category,
-                "label": plural(i.category),
-                "description": i.description,
-                "quantity": i.quantity,
-                "condition": i.condition.name.lower() if i.condition else None,
-                "note": i.attributes.get("note", ""),
-            }
-            for i in ws.items.values()
-        ],
+        "items": [_item_payload(i) for i in ws.items.values()],
+        "questions": [q.as_dict() for q in questions],
+    }
+
+
+def _item_payload(i) -> dict:
+    return {
+        "item_id": i.id,
+        "category": i.category,
+        "label": plural(i.category),
+        "description": i.description,
+        "quantity": i.quantity,
+        "condition": i.condition.name.lower() if i.condition else None,
+        "note": i.attributes.get("note", ""),
+    }
+
+
+@app.post("/runs/sample")
+def start_sample_run(
+    latitude: float = 38.9150,
+    longitude: float = -77.0200,
+    radius_miles: float = 5.0,
+) -> dict:
+    """The same run, from a committed sample pile instead of a camera.
+
+    Everything after identification is identical -- the same matcher, the same
+    clarification rule, the same fallback chain, the same organisations. Only
+    the photograph is pre-identified, from `data/fixtures/pile_01.json`, which
+    is why this works with no credentials and no model call.
+
+    It exists so the product can be shown when Bedrock is unavailable, and so
+    anyone can see the whole flow without owning an AWS account. The response
+    says plainly that it is a sample; nothing here is presented as a real
+    photograph.
+    """
+    if radius_miles <= 0:
+        raise HTTPException(400, "radius_miles must be greater than zero")
+
+    ws = _workspace(latitude, longitude, radius_miles)
+    ws.add(identify(SAMPLE_PILE, ws.vocabulary))
+
+    questions = clarifications(
+        list(ws.items.values()), ws.orgs, ws.origin, ws.radius_km
+    )
+    return {
+        "run_id": _remember(ws),
+        "sample": True,
+        "note": (
+            "A sample pile, identified in advance. Everything after this point "
+            "is the real system."
+        ),
+        "items": [_item_payload(i) for i in ws.items.values()],
         "questions": [q.as_dict() for q in questions],
     }
 
