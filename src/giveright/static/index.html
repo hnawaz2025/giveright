@@ -131,7 +131,9 @@ nav button[aria-current="true"] { color: var(--brand);
        border: 3px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,.4); }
 .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--faint);
        border: 2px solid var(--card); }
-.dot.inside { background: var(--brand); }
+.dot.inside { background: var(--dim); }
+.dot.known { background: var(--faint); }
+.dot.known.inside { background: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
 .hint { font-size: 12.5px; color: var(--faint); margin: 0 0 10px; }
 .inrange { font-size: 13.5px; color: var(--dim); margin: 10px 0 0; }
 .inrange b { color: var(--brand); }
@@ -170,6 +172,7 @@ const DEFAULT_COORDS = [38.9150, -77.0200];   // Washington DC
 const state = {
   radius: 5, coords: null, run: null, answers: {}, plan: null,
   map: null, pin: null, ring: null, orgs: null, markers: null, located: false,
+  counts: null, reload: null,
 };
 
 /* ---------- screens ---------- */
@@ -205,6 +208,7 @@ function setup(msg) {
     state.radius = +r.value;
     rv.textContent = r.value + ' mi';
     drawRadius();
+    scheduleReload();
   };
   document.getElementById('here').onclick = locate;
   document.getElementById('photo').onchange = (e) =>
@@ -217,12 +221,8 @@ function setup(msg) {
    load -- offline, blocked, a bad deploy -- the slider and the photo button
    still work, and the app says in words where it thinks you are. */
 async function startMap() {
-  if (!state.orgs) {
-    try {
-      state.orgs = (await fetch('/orgs').then(x => x.json())).organisations;
-    } catch { state.orgs = []; }
-  }
   if (!state.coords) state.coords = DEFAULT_COORDS;
+  await loadOrgs();
 
   if (typeof L === 'undefined') {
     document.getElementById('map')?.remove();
@@ -246,14 +246,7 @@ async function startMap() {
   state.pin.on('dragend', () => moveTo(state.pin.getLatLng(), false));
   state.map.on('click', (e) => moveTo(e.latlng, true));
 
-  state.markers = state.orgs.map(o =>
-    L.marker([o.lat, o.lng], {
-      icon: L.divIcon({ className: '', html: '<div class="dot"></div>',
-                        iconSize: [11, 11], iconAnchor: [5, 5] })
-    }).addTo(state.map).bindPopup(`<b>${esc(o.name)}</b><br>${esc(o.address)}`)
-  );
-
-  drawRadius();
+  redrawMarkers();
   if (!state.located) locate();
 }
 
@@ -261,6 +254,45 @@ function moveTo(latlng, movePin) {
   state.coords = [latlng.lat, latlng.lng];
   if (movePin && state.pin) state.pin.setLatLng(latlng);
   setHint('Starting from the pin. Drag it or tap the map to move it.');
+  drawRadius();
+  scheduleReload();
+}
+
+/* Organisations are national now, so who is nearby depends on where the pin is
+   and how far the radius reaches. Debounced, because dragging a pin fires
+   continuously and every fire is a query. */
+function scheduleReload() {
+  clearTimeout(state.reload);
+  state.reload = setTimeout(async () => { await loadOrgs(); redrawMarkers(); }, 400);
+}
+
+async function loadOrgs() {
+  const [lat, lng] = state.coords;
+  try {
+    const d = await fetch(
+      `/orgs?latitude=${lat}&longitude=${lng}&radius_miles=${state.radius}`
+    ).then(x => x.json());
+    state.orgs = d.organisations;
+    state.counts = d.counts;
+  } catch { state.orgs = state.orgs || []; }
+}
+
+function redrawMarkers() {
+  if (!state.map) { drawRadius(); return; }
+  (state.markers || []).forEach(m => m.remove());
+  state.markers = (state.orgs || []).map(o =>
+    L.marker([o.lat, o.lng], {
+      icon: L.divIcon({
+        className: '',
+        html: `<div class="dot ${o.source === 'curated' ? 'known' : ''}"></div>`,
+        iconSize: [11, 11], iconAnchor: [5, 5] })
+    }).addTo(state.map).bindPopup(
+      `<b>${esc(o.name)}</b><br>${esc(o.address)}` +
+      (o.source === 'registry'
+        ? '<br><i>listed by the IRS &mdash; has not told us what it needs</i>'
+        : '')
+    )
+  );
   drawRadius();
 }
 
@@ -290,10 +322,14 @@ function drawRadius() {
   });
 
   const el = document.getElementById('count');
-  if (el) el.innerHTML = orgs.length
-    ? `<b>${inside.length}</b> of ${orgs.length} organisation${
-        orgs.length === 1 ? '' : 's'} in range`
-    : '&nbsp;';
+  if (!el) return;
+  const known = inside.filter(o => o.source === 'curated').length;
+  el.innerHTML = inside.length
+    ? `<b>${inside.length}</b> organisation${inside.length === 1 ? '' : 's'} in range` +
+      (known
+        ? ` &middot; <b>${known}</b> ${known === 1 ? 'has' : 'have'} told us what they need`
+        : ' &middot; none have told us what they need yet')
+    : 'No organisations in range. Try a wider radius.';
 }
 
 function haversine([aLat, aLng], [bLat, bLng]) {

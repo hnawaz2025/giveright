@@ -1,0 +1,237 @@
+"""Build the national organization registry from the IRS Business Master File.
+
+    python scripts/import_orgs.py --states DC MD VA
+    python scripts/import_orgs.py --states CA --limit 2000
+
+Three stages, each of which can be re-run without redoing the others:
+
+  download  the IRS Exempt Organizations BMF extracts (~500 MB, cached on disk)
+  filter    to live 501(c)(3)s in the requested states whose NTEE code implies
+            they handle donated goods
+  geocode   through the US Census Bureau's free batch geocoder, cached by
+            address so a re-run costs nothing
+
+What this does NOT do is decide what any organization needs. The BMF says who
+exists and where; it says nothing about whether a shelter is short of coats
+this week. Registry entries therefore carry no needs at all -- that is Layer 2,
+and it only ever comes from the organization itself.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import io
+import json
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from giveright.registry import (  # noqa: E402
+    NTEE_ACCEPTS,
+    Entry,
+    connect,
+    count,
+    save,
+    today_iso,
+)
+
+BMF_FILES = [f"https://www.irs.gov/pub/irs-soi/eo{n}.csv" for n in (1, 2, 3, 4)]
+CENSUS_BATCH = "https://geocoding.geo.census.gov/geocoder/locations/addressbatch"
+CENSUS_LIMIT = 10_000                       # per the Census batch API
+
+CACHE = Path(__file__).resolve().parents[1] / "data" / "cache"
+GEOCACHE = CACHE / "geocoded.jsonl"
+
+WANTED_NTEE = tuple(sorted(NTEE_ACCEPTS))
+LIVE_STATUS = {"01"}                        # unconditionally exempt
+CHARITABLE = {"03"}                         # 501(c)(3)
+
+
+def log(msg: str) -> None:
+    print(msg, file=sys.stderr, flush=True)
+
+
+def download(url: str) -> Path:
+    """Cached. The extracts are large and change monthly, not hourly."""
+    CACHE.mkdir(parents=True, exist_ok=True)
+    path = CACHE / Path(url).name
+    if path.exists() and path.stat().st_size > 0:
+        return path
+    log(f"  downloading {url} …")
+    tmp = path.with_suffix(".part")
+    try:
+        urllib.request.urlretrieve(url, tmp)
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"could not download {url}: {exc}") from exc
+    tmp.rename(path)
+    return path
+
+
+def wanted(row: dict) -> bool:
+    return (
+        row.get("SUBSECTION") in CHARITABLE
+        and row.get("STATUS") in LIVE_STATUS
+        and (row.get("NTEE_CD") or "")[:3].upper() in NTEE_ACCEPTS
+        and bool(row.get("STREET"))
+    )
+
+
+def harvest(states: set[str], limit: int | None) -> list[dict]:
+    found = []
+    for url in BMF_FILES:
+        path = download(url)
+        with path.open(newline="", encoding="utf-8", errors="replace") as fh:
+            for row in csv.DictReader(fh):
+                if row.get("STATE") in states and wanted(row):
+                    found.append(row)
+                    if limit and len(found) >= limit:
+                        return found
+        log(f"  {path.name}: {len(found)} matching so far")
+    return found
+
+
+# --------------------------------------------------------------------------
+# Geocoding
+# --------------------------------------------------------------------------
+
+
+def load_geocache() -> dict[str, tuple[float, float]]:
+    if not GEOCACHE.exists():
+        return {}
+    out = {}
+    for line in GEOCACHE.read_text().splitlines():
+        if line.strip():
+            rec = json.loads(line)
+            out[rec["key"]] = (rec["lat"], rec["lng"])
+    return out
+
+
+def remember(found: dict[str, tuple[float, float]]) -> None:
+    GEOCACHE.parent.mkdir(parents=True, exist_ok=True)
+    with GEOCACHE.open("a") as fh:
+        for key, (lat, lng) in found.items():
+            fh.write(json.dumps({"key": key, "lat": lat, "lng": lng}) + "\n")
+
+
+def key_for(row: dict) -> str:
+    return "|".join(
+        (row["STREET"], row["CITY"], row["STATE"], (row["ZIP"] or "")[:5])
+    ).upper()
+
+
+def geocode(rows: list[dict], cache: dict[str, tuple[float, float]]) -> dict:
+    """Census batch geocoder, in chunks, skipping anything already known.
+
+    Unmatched addresses are dropped rather than approximated. A ZIP centroid
+    would put an organization up to a mile from where it is, and this product
+    tells people how far to drive.
+    """
+    todo = [r for r in rows if key_for(r) not in cache]
+    log(f"  {len(rows) - len(todo)} already geocoded, {len(todo)} to do")
+
+    for start in range(0, len(todo), CENSUS_LIMIT):
+        chunk = todo[start : start + CENSUS_LIMIT]
+        payload = io.StringIO()
+        writer = csv.writer(payload)
+        for n, row in enumerate(chunk):
+            writer.writerow(
+                [n, row["STREET"], row["CITY"], row["STATE"], (row["ZIP"] or "")[:5]]
+            )
+
+        log(f"  geocoding {start + 1}–{start + len(chunk)} of {len(todo)} …")
+        try:
+            body, headers = _multipart(payload.getvalue().encode())
+            request = urllib.request.Request(CENSUS_BATCH, data=body, headers=headers)
+            with urllib.request.urlopen(request, timeout=600) as response:
+                result = response.read().decode("utf-8", "replace")
+        except (urllib.error.URLError, TimeoutError) as exc:
+            log(f"  ! geocoder failed on this chunk ({exc}); keeping what we have")
+            continue
+
+        found = {}
+        for line in csv.reader(io.StringIO(result)):
+            # id, input, match, exact, matched address, "lon,lat", tiger, side
+            if len(line) >= 6 and line[2] == "Match" and "," in line[5]:
+                lng, lat = line[5].split(",")[:2]
+                found[key_for(chunk[int(line[0])])] = (float(lat), float(lng))
+
+        cache.update(found)
+        remember(found)
+        log(f"    matched {len(found)} of {len(chunk)}")
+
+    return cache
+
+
+def _multipart(csv_bytes: bytes) -> tuple[bytes, dict]:
+    boundary = "----giveright-geocode"
+    parts = [
+        f'--{boundary}\r\nContent-Disposition: form-data; name="benchmark"\r\n\r\n'
+        f"Public_AR_Current\r\n".encode(),
+        f'--{boundary}\r\nContent-Disposition: form-data; name="addressFile"; '
+        f'filename="addresses.csv"\r\nContent-Type: text/csv\r\n\r\n'.encode(),
+        csv_bytes,
+        f"\r\n--{boundary}--\r\n".encode(),
+    ]
+    body = b"".join(parts)
+    return body, {
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "Content-Length": str(len(body)),
+    }
+
+
+# --------------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--states", nargs="+", required=True,
+                        help="two-letter codes, e.g. DC MD VA")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="stop after this many matching organizations")
+    parser.add_argument("--out", default=None, help="registry path")
+    args = parser.parse_args(argv)
+
+    states = {s.strip().upper() for s in args.states}
+    log(f"NTEE codes in scope: {', '.join(WANTED_NTEE)}")
+    log(f"states: {', '.join(sorted(states))}")
+
+    rows = harvest(states, args.limit)
+    log(f"{len(rows)} live 501(c)(3)s whose classification implies donated goods")
+    if not rows:
+        log("nothing to import")
+        return 1
+
+    cache = geocode(rows, load_geocache())
+
+    path = Path(args.out) if args.out else None
+    conn = connect(path)
+    entries = []
+    for row in rows:
+        located = cache.get(key_for(row))
+        if located is None:
+            continue
+        entries.append(
+            Entry(
+                ein=row["EIN"], name=row["NAME"], street=row["STREET"],
+                city=row["CITY"], state=row["STATE"], zip=(row["ZIP"] or "")[:5],
+                ntee=(row["NTEE_CD"] or "").upper(),
+                lat=located[0], lng=located[1],
+                source="IRS Exempt Organizations Business Master File",
+                imported_on=today_iso(),
+            )
+        )
+    save(conn, entries)
+    conn.close()
+
+    log(f"imported {len(entries)} organizations "
+        f"({len(rows) - len(entries)} could not be geocoded and were dropped)")
+    log(f"registry now holds {count(path)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

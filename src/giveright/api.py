@@ -26,6 +26,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from . import registry
 from .corpus import load_orgs
 from .fallback import decline_reason_for, resolve
 from .geo import km
@@ -69,7 +70,11 @@ def health() -> dict:
 
 
 @app.get("/orgs")
-def orgs() -> dict:
+def orgs(
+    latitude: float | None = None,
+    longitude: float | None = None,
+    radius_miles: float = 5.0,
+) -> dict:
     """The corpus, with the provenance of every need visible.
 
     A need shows either the organisation's own confirmation or the page it was
@@ -77,11 +82,31 @@ def orgs() -> dict:
     you cannot judge.
     """
     today = date.today()
+    curated = ObservationLog.load().replay(load_orgs())
+
+    # Without a location this is just the hand-curated corpus. With one, every
+    # registry organisation inside the radius comes too -- that is the whole
+    # point of the registry, and it is why the map can show a donor anywhere in
+    # the country who is actually near them.
+    if latitude is not None and longitude is not None:
+        known = {o.id for o in curated}
+        nearby = registry.near((latitude, longitude), km(radius_miles))
+        found = curated + [o for o in nearby if o.id not in known]
+    else:
+        found = curated
+
     return {
+        "counts": {
+            "curated": len(curated),
+            "registry": len(found) - len(curated),
+            "registry_total": registry.count(),
+        },
         "organisations": [
             {
                 "id": o.id,
                 "name": o.name,
+                "source": "registry" if o.id.startswith("irs_") else "curated",
+                "verification_source": o.verification_source,
                 "lat": o.lat,
                 "lng": o.lng,
                 "address": o.address,
@@ -105,7 +130,7 @@ def orgs() -> dict:
                     for n in o.needs
                 ],
             }
-            for o in ObservationLog.load().replay(load_orgs())
+            for o in found
         ]
     }
 

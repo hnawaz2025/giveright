@@ -55,6 +55,7 @@ def build_tools(ws: Workspace) -> list:
         if radius_miles <= 0:
             return {"error": "Radius must be greater than zero."}
         ws.radius_km = km(radius_miles)
+        ws.refresh_orgs()
         return {
             "radius_miles": radius_miles,
             "organisations_in_range": sum(

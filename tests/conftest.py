@@ -60,6 +60,10 @@ def never_touch_the_real_data_directory(tmp_path, monkeypatch):
                         tmp_path / "observations.jsonl")
     monkeypatch.setattr("giveright.trends.LEDGER_FILE", tmp_path / "ledger.jsonl")
     monkeypatch.setattr("giveright.watch.HELD_FILE", tmp_path / "held.jsonl")
+    # The national registry is real data built from the IRS extract, and its
+    # contents change every time it is rebuilt. Tests that assert on a plan
+    # must see the fixtures and nothing else.
+    monkeypatch.setattr("giveright.registry.REGISTRY_FILE", tmp_path / "registry.sqlite")
     monkeypatch.setattr("giveright.vision.RUNTIME_CACHE_DIR", tmp_path / "cache")
 
 
