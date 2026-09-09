@@ -113,3 +113,10 @@ def test_there_is_nothing_for_an_organisation_to_log_into(client):
     paths = {r.path for r in app.routes}
     assert not [p for p in paths if p.startswith("/orgs/")]
     assert "/dashboard" in paths
+
+
+def test_orgs_carry_coordinates_so_the_map_can_place_them(client):
+    """The radius is only meaningful if you can see who is inside it."""
+    for org in client.get("/orgs").json()["organisations"]:
+        assert isinstance(org["lat"], float) and isinstance(org["lng"], float)
+        assert -90 <= org["lat"] <= 90 and -180 <= org["lng"] <= 180

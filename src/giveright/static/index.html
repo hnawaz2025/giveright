@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1d6b52">
 <title>GiveRight</title>
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"
+        defer></script>
 <style>
 :root {
   --ink: #17211d;      --dim: #5c6b64;    --faint: #8b9a93;
@@ -120,6 +124,18 @@ nav button { background: transparent; color: var(--dim); border-radius: 0;
 nav button[aria-current="true"] { color: var(--brand);
                                   box-shadow: inset 0 2px 0 var(--brand); }
 
+#map { height: 260px; border-radius: var(--radius); border: 1px solid var(--line);
+       margin-bottom: 10px; z-index: 0; }
+.leaflet-container { background: var(--card); font: inherit; }
+.pin { width: 18px; height: 18px; border-radius: 50%; background: var(--brand);
+       border: 3px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,.4); }
+.dot { width: 11px; height: 11px; border-radius: 50%; background: var(--faint);
+       border: 2px solid var(--card); }
+.dot.inside { background: var(--brand); }
+.hint { font-size: 12.5px; color: var(--faint); margin: 0 0 10px; }
+.inrange { font-size: 13.5px; color: var(--dim); margin: 10px 0 0; }
+.inrange b { color: var(--brand); }
+
 .stat { display: flex; gap: 10px; }
 .stat > div { flex: 1; text-align: center; }
 .stat b { display: block; font-size: 27px; font-variant-numeric: tabular-nums;
@@ -150,51 +166,169 @@ const view = document.getElementById('view');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-const state = { radius: 5, coords: null, run: null, answers: {}, plan: null };
+const DEFAULT_COORDS = [38.9150, -77.0200];   // Washington DC
+const state = {
+  radius: 5, coords: null, run: null, answers: {}, plan: null,
+  map: null, pin: null, ring: null, orgs: null, markers: null, located: false,
+};
 
 /* ---------- screens ---------- */
 
 function setup(msg) {
+  if (state.map) { state.map.remove(); state.map = null; }
+
   view.replaceChildren($(`
     ${msg ? `<div class="card err">${esc(msg)}</div>` : ''}
-    <h2>How far will you go?</h2>
+    <h2>Where are you starting from?</h2>
+    <div id="map"></div>
+    <p class="hint" id="hint">Tap the map to start somewhere else &mdash; a
+      parent's house, the office, wherever the pile actually is.</p>
+    <button class="ghost small" id="here" style="margin-bottom:14px">
+      Use my current location</button>
+
     <div class="card">
       <div class="radius"><b id="rv">${state.radius} mi</b>
         <i>organisations outside this are never suggested</i></div>
-      <input type="range" id="r" min="1" max="25" value="${state.radius}">
+      <input type="range" id="r" min="1" max="50" value="${state.radius}">
+      <p class="inrange" id="count">&nbsp;</p>
     </div>
+
     <h2>Your pile</h2>
     <label class="shoot">
       Take a photo
       <input type="file" id="photo" accept="image/*" capture="environment">
     </label>
-    <p class="note" id="loc">Finding your location&hellip;</p>
   `));
 
   const r = document.getElementById('r'), rv = document.getElementById('rv');
-  r.oninput = () => { state.radius = +r.value; rv.textContent = r.value + ' mi'; };
+  r.oninput = () => {
+    state.radius = +r.value;
+    rv.textContent = r.value + ' mi';
+    drawRadius();
+  };
+  document.getElementById('here').onclick = locate;
   document.getElementById('photo').onchange = (e) =>
     e.target.files[0] && upload(e.target.files[0]);
 
-  locate();
+  startMap();
+}
+
+/* The map is an affordance, not a dependency. If Leaflet or its tiles fail to
+   load -- offline, blocked, a bad deploy -- the slider and the photo button
+   still work, and the app says in words where it thinks you are. */
+async function startMap() {
+  if (!state.orgs) {
+    try {
+      state.orgs = (await fetch('/orgs').then(x => x.json())).organisations;
+    } catch { state.orgs = []; }
+  }
+  if (!state.coords) state.coords = DEFAULT_COORDS;
+
+  if (typeof L === 'undefined') {
+    document.getElementById('map')?.remove();
+    document.getElementById('hint').textContent =
+      'Map unavailable, so the radius is set by the slider alone.';
+    drawRadius();
+    if (!state.located) locate();
+    return;
+  }
+
+  state.map = L.map('map', { zoomControl: false }).setView(state.coords, 12);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18, attribution: '&copy; OpenStreetMap'
+  }).addTo(state.map);
+
+  state.pin = L.marker(state.coords, {
+    draggable: true,
+    icon: L.divIcon({ className: '', html: '<div class="pin"></div>',
+                      iconSize: [18, 18], iconAnchor: [9, 9] })
+  }).addTo(state.map);
+  state.pin.on('dragend', () => moveTo(state.pin.getLatLng(), false));
+  state.map.on('click', (e) => moveTo(e.latlng, true));
+
+  state.markers = state.orgs.map(o =>
+    L.marker([o.lat, o.lng], {
+      icon: L.divIcon({ className: '', html: '<div class="dot"></div>',
+                        iconSize: [11, 11], iconAnchor: [5, 5] })
+    }).addTo(state.map).bindPopup(`<b>${esc(o.name)}</b><br>${esc(o.address)}`)
+  );
+
+  drawRadius();
+  if (!state.located) locate();
+}
+
+function moveTo(latlng, movePin) {
+  state.coords = [latlng.lat, latlng.lng];
+  if (movePin && state.pin) state.pin.setLatLng(latlng);
+  setHint('Starting from the pin. Drag it or tap the map to move it.');
+  drawRadius();
+}
+
+function setHint(text) {
+  const h = document.getElementById('hint');
+  if (h) h.textContent = text;
+}
+
+function drawRadius() {
+  const metres = state.radius * 1609.344;
+
+  if (state.map) {
+    if (state.ring) state.ring.remove();
+    state.ring = L.circle(state.coords, {
+      radius: metres, color: '#1d6b52', weight: 1.5,
+      fillColor: '#1d6b52', fillOpacity: .08
+    }).addTo(state.map);
+    state.map.fitBounds(state.ring.getBounds(), { padding: [24, 24] });
+  }
+
+  const orgs = state.orgs || [];
+  const inside = orgs.filter(o => haversine(state.coords, [o.lat, o.lng]) <= metres);
+
+  (state.markers || []).forEach((m, i) => {
+    const on = haversine(state.coords, [orgs[i].lat, orgs[i].lng]) <= metres;
+    m.getElement()?.firstChild?.classList.toggle('inside', on);
+  });
+
+  const el = document.getElementById('count');
+  if (el) el.innerHTML = orgs.length
+    ? `<b>${inside.length}</b> of ${orgs.length} organisation${
+        orgs.length === 1 ? '' : 's'} in range`
+    : '&nbsp;';
+}
+
+function haversine([aLat, aLng], [bLat, bLng]) {
+  const R = 6371008.8, rad = (d) => d * Math.PI / 180;
+  const dLat = rad(bLat - aLat), dLng = rad(bLng - aLng);
+  const h = Math.sin(dLat / 2) ** 2 +
+            Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
 }
 
 function locate() {
-  const el = document.getElementById('loc');
-  if (!navigator.geolocation) { fallback(el, 'This browser has no location.'); return; }
+  if (!navigator.geolocation) { fallbackHere('This browser has no location.'); return; }
+  setHint('Finding your location…');
   navigator.geolocation.getCurrentPosition(
-    (p) => { state.coords = [p.coords.latitude, p.coords.longitude];
-             el.textContent = 'Using your current location.'; },
-    () => fallback(el, 'Location unavailable.'),
+    (p) => {
+      state.located = true;
+      const here = { lat: p.coords.latitude, lng: p.coords.longitude };
+      if (state.map) { state.map.setView([here.lat, here.lng], 12); moveTo(here, true); }
+      else { state.coords = [here.lat, here.lng]; drawRadius(); }
+      setHint(state.map
+        ? 'Starting from your current location. Tap the map to move it.'
+        : 'Using your current location.');
+    },
+    () => fallbackHere('Location unavailable.'),
     { timeout: 8000 }
   );
 }
 
-function fallback(el, why) {
+function fallbackHere(why) {
   // Washington DC. Said out loud rather than silently assumed -- a plan built
-  // around the wrong city is worse than one that admits where it thinks you are.
-  state.coords = [38.9150, -77.0200];
-  el.textContent = why + ' Using Washington DC for this demo.';
+  // around the wrong city is worse than one that admits where it thinks it is.
+  state.coords = state.coords || DEFAULT_COORDS;
+  setHint(`${why} Starting from Washington DC${
+    state.map ? ' — tap the map to move it.' : '.'}`);
+  drawRadius();
 }
 
 function busy(text) {

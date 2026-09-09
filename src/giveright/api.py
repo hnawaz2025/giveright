@@ -82,6 +82,8 @@ def orgs() -> dict:
             {
                 "id": o.id,
                 "name": o.name,
+                "lat": o.lat,
+                "lng": o.lng,
                 "address": o.address,
                 "hours": o.hours,
                 "accepts": sorted(o.accepts),

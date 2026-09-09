@@ -15,6 +15,13 @@ When nothing will take an item, it keeps working.
 
 ## What makes it different
 
+**The radius is a promise you can see.** Before the photo, the donor drops a
+pin -- their location, or a parent's house, or wherever the pile actually is --
+and drags a radius out to 50 miles. Every organization in the corpus is on the
+map, and they light up as they come into range, so the count under the slider
+is a real answer to "who could take this?" rather than a number to guess at.
+Nothing outside that circle is ever offered, however badly it needs the item.
+
 **It scores one thing, because it can only measure one thing.** The order is
 nearest-first among organizations that listed the need. That is the entire
 ranking, and it is the entire claim.
@@ -85,7 +92,7 @@ why an org was chosen. It is never the source of a fact a person will act on.
 ```mermaid
 flowchart TB
     subgraph donor[" "]
-        R["Donor sets a radius<br/><i>before</i> the photo"]
+        R["Donor sets a start point<br/>and radius, <i>before</i> the photo"]
         P["Photo of the pile"]
     end
 
