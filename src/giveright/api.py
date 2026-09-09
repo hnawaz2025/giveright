@@ -110,6 +110,55 @@ def orgs() -> dict:
     }
 
 
+def _model_failure(exc: Exception) -> HTTPException:
+    """Turn a Bedrock failure into something the person looking at it can act on.
+
+    An unhandled botocore error becomes a bare 500 and "something went wrong",
+    which is true and useless. These are the failures this project has actually
+    hit, each with the thing to go and do about it. Identification is never
+    faked when the model is unavailable -- an invented pile would be worse than
+    an error.
+    """
+    from botocore.exceptions import ClientError, NoCredentialsError
+
+    if isinstance(exc, NoCredentialsError):
+        return HTTPException(
+            503,
+            "This server has no AWS credentials, so it cannot look at photos. "
+            "Set them and restart.",
+        )
+
+    if isinstance(exc, ClientError):
+        message = exc.response.get("Error", {}).get("Message", str(exc))
+        code = exc.response.get("Error", {}).get("Code", "")
+
+        if "not allowed for this account" in message:
+            return HTTPException(
+                503,
+                "Amazon Bedrock is not enabled for this AWS account, so photos "
+                "cannot be identified. This is an account-level setting, not a "
+                "problem with the photo.",
+            )
+        if "use case details" in message:
+            return HTTPException(
+                503,
+                "This model needs its one-time use case form submitted for the "
+                "account before it can be called.",
+            )
+        if "being verified" in message:
+            return HTTPException(
+                503,
+                "The AWS account is still being verified, which usually takes "
+                "under two hours. Nothing is wrong with the photo.",
+            )
+        if code in ("ThrottlingException", "TooManyRequestsException"):
+            return HTTPException(429, "The model is busy. Try that photo again.")
+
+        return HTTPException(503, f"The model could not be reached ({code}).")
+
+    return HTTPException(503, "The model could not be reached.")
+
+
 _SESSIONS: dict[str, Workspace] = {}
 
 # A demo holds runs in memory. One process, no eviction: fine for a single
@@ -167,6 +216,8 @@ async def start_run(
             ws.add(identify(path, ws.vocabulary, use_fixture=False))
         except (FileNotFoundError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 -- narrowed inside the helper
+            raise _model_failure(exc) from exc
 
     questions = clarifications(
         list(ws.items.values()), ws.orgs, ws.origin, ws.radius_km

@@ -120,3 +120,62 @@ def test_orgs_carry_coordinates_so_the_map_can_place_them(client):
     for org in client.get("/orgs").json()["organisations"]:
         assert isinstance(org["lat"], float) and isinstance(org["lng"], float)
         assert -90 <= org["lat"] <= 90 and -180 <= org["lng"] <= 180
+
+
+class TestModelFailures:
+    """A photo the model cannot be asked about must fail legibly. "Something
+    went wrong (500)" tells the person nothing and hides a fixable cause."""
+
+    def upload(self, client):
+        with open("data/fixtures/pile_01.json", "rb") as fh:
+            return client.post(
+                "/runs",
+                files={"photo": ("p.jpg", fh, "image/jpeg")},
+                data={"latitude": 38.9, "longitude": -77.0, "radius_miles": 8},
+            )
+
+    def raising(self, monkeypatch, exc):
+        def boom(*a, **k):
+            raise exc
+        monkeypatch.setattr("giveright.vision._identify_with_model", boom)
+
+    def test_a_disabled_bedrock_account_says_so(self, client, monkeypatch):
+        from botocore.exceptions import ClientError
+
+        self.raising(monkeypatch, ClientError(
+            {"Error": {"Code": "ValidationException",
+                       "Message": "Error 002: Access to Bedrock models is not "
+                                  "allowed for this account"}},
+            "ConverseStream"))
+
+        r = self.upload(client)
+        assert r.status_code == 503
+        assert "not enabled for this AWS account" in r.json()["detail"]
+        assert "not a problem with the photo" in r.json()["detail"]
+
+    def test_missing_credentials_say_so(self, client, monkeypatch):
+        from botocore.exceptions import NoCredentialsError
+
+        self.raising(monkeypatch, NoCredentialsError())
+
+        r = self.upload(client)
+        assert r.status_code == 503
+        assert "no AWS credentials" in r.json()["detail"]
+
+    def test_throttling_is_worth_retrying_and_says_so(self, client, monkeypatch):
+        from botocore.exceptions import ClientError
+
+        self.raising(monkeypatch, ClientError(
+            {"Error": {"Code": "ThrottlingException", "Message": "slow down"}},
+            "ConverseStream"))
+
+        r = self.upload(client)
+        assert r.status_code == 429
+        assert "Try that photo again" in r.json()["detail"]
+
+    def test_nothing_is_invented_when_the_model_is_down(self, client, monkeypatch):
+        """An empty or made-up pile would be worse than an error."""
+        from botocore.exceptions import NoCredentialsError
+
+        self.raising(monkeypatch, NoCredentialsError())
+        assert "items" not in self.upload(client).json()
