@@ -36,6 +36,7 @@ from .outreach import (
 )
 from .session import Workspace
 from .state import transition
+from .watch import hold_from, sweep
 from .trends import DonationEvent, dashboard
 from .vision import identify
 
@@ -208,11 +209,36 @@ def build_tools(ws: Workspace) -> list:
                                note=why)
             resolution = resolve(item, ws.pathways, today=ws.today)
             transition(item, resolution.next_state, note=resolution.headline)
+
+            # A held item is a promise to keep looking. Record it so a later
+            # sweep can honour that rather than the sentence being decoration.
+            if resolution.next_state is ItemState.HELD:
+                ws.holds.hold(
+                    hold_from(item, ws.origin, ws.radius_km, today=ws.today)
+                )
+
             payload = resolution.as_dict()
             payload["why_no_org_took_it"] = why
             out.append(payload)
 
         return {"resolved": out}
+
+    @tool
+    def check_held_items() -> dict:
+        """Re-check everything being held against the corpus as it stands now.
+
+        This is the background job, callable on demand. It reports only what a
+        donor should be told -- an item that now has a home, or a hold that has
+        run out. A sweep that finds neither says so and nothing is sent.
+        """
+        found = sweep(ws.holds, ws.orgs, ws.pathways, today=ws.today)
+        payload = found.as_dict()
+        if found.quiet:
+            payload["note"] = (
+                f"{found.still_waiting} item(s) still waiting. Nothing to tell "
+                f"the donor -- do not message them about a quiet sweep."
+            )
+        return payload
 
     @tool
     def message_org(org_id: str) -> dict:
@@ -382,6 +408,7 @@ def build_tools(ws: Workspace) -> list:
         plan_dropoffs,
         compare_options,
         resolve_leftovers,
+        check_held_items,
         message_org,
         record_org_reply,
         verify_with_org,

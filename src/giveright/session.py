@@ -18,6 +18,7 @@ from .geo import km
 from .matching import Plan
 from .models import Item, Org
 from .observations import ObservationLog
+from .watch import HoldLog
 from .trends import Ledger
 
 DEFAULT_RADIUS_MILES = 5.0
@@ -35,6 +36,7 @@ class Workspace:
     today: date | None = None
     org_dir: Path | None = None
     observations: ObservationLog = field(default_factory=ObservationLog)
+    holds: HoldLog = field(default_factory=HoldLog)
 
     @classmethod
     def open(
@@ -45,6 +47,7 @@ class Workspace:
         org_dir: Path | None = None,
         ledger_path: Path | None = None,
         observations_path: Path | None = None,
+        holds_path: Path | None = None,
         today: date | None = None,
     ) -> "Workspace":
         # The curated corpus is read-only. Everything GiveRight itself observed
@@ -60,6 +63,7 @@ class Workspace:
             today=today,
             org_dir=org_dir,
             observations=observations,
+            holds=HoldLog.load(holds_path),
         )
 
     @property

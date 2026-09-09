@@ -43,9 +43,24 @@ Shortfall survives as a capacity cap — it limits how much is sent and is shown
 only when an organization actually told us. When they never said, the plan says
 nothing rather than inventing a number.
 
-**No Dead Ends.** Every item reaches a terminal answer. If no org will take it,
-the agent holds it and keeps watching for a new local need, then tries a named
-reuse organization, then recycling, and only then explains safe disposal.
+**No Dead Ends, and the holding is real.** Every item reaches a terminal
+answer. If no org will take it, the agent holds it and keeps watching for a new
+local need, then tries a named reuse organization, then recycling, and only
+then explains safe disposal.
+
+"Keeps watching" is a background job, not a sentence. `watch.py` re-checks every
+held item against a corpus that has moved since, on whatever cadence you run it:
+
+```
+*/30 * * * *  cd /srv/giveright && .venv/bin/python -m giveright.watch
+```
+
+It surfaces exactly two things -- an item that now has a home, and a hold that
+has run out -- and in the ordinary case it finds neither and says nothing at
+all. An agent that reports "I checked and there was nothing" every morning is a
+notification people turn off, and then the one that mattered is off too. Each
+hold carries the radius it was promised under, so a later sweep cannot quietly
+offer the donor somewhere they never agreed to travel.
 
 **Disposal is not recovery.** The headline metric counts reuse by a named
 organization. Recycling and disposal are reported separately and never folded
@@ -84,11 +99,12 @@ flowchart TB
         PL["the plan, with<br/>its reasons"]
     end
 
-    subgraph tools["Tools -- 11, each a wrapper over a deterministic function"]
+    subgraph tools["Tools -- 12, each a wrapper over a deterministic function"]
         T1["identify_pile"]
         T2["ask_the_donor<br/><small>Strands interrupt</small>"]
         T3["plan_dropoffs / compare_options"]
         T4["resolve_leftovers"]
+        T8["check_held_items<br/><small>also runs on cron</small>"]
         T5["message_org / record_org_reply"]
         T6["verify_with_org<br/><small>Strands interrupt: drafts, donor approves</small>"]
         T7["record_dropoff / neighbourhood_dashboard"]
@@ -116,7 +132,7 @@ flowchart TB
     M --> PL
     R --> A
     P --> A
-    A <--> T1 & T2 & T3 & T4 & T5 & T6 & T7
+    A <--> T1 & T2 & T3 & T4 & T5 & T6 & T7 & T8
     T1 -->|"structured output,<br/>cached to a fixture"| V
     A --> V
     T3 --> M
@@ -127,6 +143,8 @@ flowchart TB
     M --> O
     F --> W
     G --> L
+    T8 --> H[("data/held.jsonl")]
+    T8 --> O
     T5 -->|"one word writes back"| O
     T6 -->|"aged need"| O
 ```
@@ -168,10 +186,10 @@ whoever they like. The agent does not.
 
 ## Status
 
-Working end to end and under test (100 tests, no network, no credentials): the
+Working end to end and under test (116 tests, no network, no credentials): the
 domain model and item state machine, the organization corpus and its
 append-only observation log, distance ranking, the clarification rule, the
-no-dead-ends chain, the neighbourhood ledger, the eleven-tool Strands agent, an
+no-dead-ends chain, the neighbourhood ledger, the twelve-tool Strands agent, an
 HTTP API and a mobile web app, plus a deterministic terminal demo.
 
 Models run on Amazon Bedrock, defaulting to Amazon Nova Pro, and both model
@@ -196,6 +214,7 @@ src/giveright/
   matching.py  distance ranking, the clarification rule, plan building
   fallback.py  no dead ends: hold -> reuse -> recycle -> disposal
   trends.py    ledger, surge detection with a significance floor, gaps
+  watch.py     the background sweep over held items, and its cron entry point
   vision.py    photo -> items, cached to a fixture so the core needs no model
   outreach.py  the emails sent to organizations, and their one-word replies
   session.py   the state one donation run carries between tool calls
@@ -207,6 +226,7 @@ src/giveright/
   demo.py      a terminal walkthrough
 data/orgs/     one YAML per organization, hand-curated, never machine-written
 data/observations.jsonl  deliveries and org replies, replayed onto the corpus
+data/held.jsonl          open promises to keep looking, closed by appending
 data/fixtures/ cached vision output, so the core is built without model calls
 data/pathways.yaml  reuse / recycle / disposal routes per category
 ```
@@ -215,7 +235,7 @@ data/pathways.yaml  reuse / recycle / disposal routes per category
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest                                  # 100 tests, no model, no network
+.venv/bin/pytest                                  # 116 tests, no model, no network
 .venv/bin/python -m giveright.demo --fresh --today 2026-09-07   # reproducible run
 .venv/bin/python -m giveright.demo --agent        # the same flow, driven by the model
 .venv/bin/uvicorn giveright.api:app --host 0.0.0.0   # the web app, on http://<your-ip>:8000

@@ -12,3 +12,4 @@ giveright.db
 data/ledger.jsonl
 data/observations.jsonl
 data/cache/
+data/held.jsonl

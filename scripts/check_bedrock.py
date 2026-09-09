@@ -112,6 +112,16 @@ def main() -> int:
                 "propagate, then re-run this script.",
             )
 
+        if "not allowed for this account" in message:
+            fail(
+                f"{code}: {message}",
+                "Bedrock is disabled for this AWS account, which is an "
+                "account-level state -- no IAM policy or region change fixes "
+                "it. Check ~/.aws/credentials is pointing at the account you "
+                "expect (the identity in step 3 above), and that Bedrock is "
+                "enabled there.",
+            )
+
         if code in ("AccessDeniedException", "AccessDenied"):
             fail(
                 f"{code}: {message}",

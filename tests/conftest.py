@@ -59,6 +59,8 @@ def never_touch_the_real_data_directory(tmp_path, monkeypatch):
     monkeypatch.setattr("giveright.observations.OBSERVATIONS_FILE",
                         tmp_path / "observations.jsonl")
     monkeypatch.setattr("giveright.trends.LEDGER_FILE", tmp_path / "ledger.jsonl")
+    monkeypatch.setattr("giveright.watch.HELD_FILE", tmp_path / "held.jsonl")
+    monkeypatch.setattr("giveright.vision.RUNTIME_CACHE_DIR", tmp_path / "cache")
 
 
 @pytest.fixture
