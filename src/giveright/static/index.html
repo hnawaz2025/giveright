@@ -304,31 +304,67 @@ function haversine([aLat, aLng], [bLat, bLng]) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+/* Browsers only hand out location over HTTPS (localhost excepted), so on a
+   phone pointed at http://<lan-ip>:8000 this is refused before the permission
+   prompt ever appears. Saying that is the whole fix -- a button that silently
+   does nothing reads as broken software rather than a browser rule. */
 function locate() {
-  if (!navigator.geolocation) { fallbackHere('This browser has no location.'); return; }
-  setHint('Finding your location…');
+  const btn = document.getElementById('here');
+
+  if (!navigator.geolocation) {
+    settle('This browser cannot share a location.'); return;
+  }
+  if (!window.isSecureContext) {
+    settle('Your browser only shares location over HTTPS, and this page is on ' +
+           'plain HTTP. Tap the map to set your starting point instead.');
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Finding you…'; }
+  setHint('Asking your browser for your location…');
+
   navigator.geolocation.getCurrentPosition(
     (p) => {
       state.located = true;
       const here = { lat: p.coords.latitude, lng: p.coords.longitude };
-      if (state.map) { state.map.setView([here.lat, here.lng], 12); moveTo(here, true); }
+      if (state.map) { state.map.setView([here.lat, here.lng], 13); moveTo(here, true); }
       else { state.coords = [here.lat, here.lng]; drawRadius(); }
+      restore(btn);
       setHint(state.map
-        ? 'Starting from your current location. Tap the map to move it.'
+        ? 'Starting from your current location. Drag the pin to move it.'
         : 'Using your current location.');
     },
-    () => fallbackHere('Location unavailable.'),
-    { timeout: 8000 }
+    (err) => {
+      restore(btn);
+      settle({
+        1: 'Your browser blocked the location request. Allow it in site ' +
+           'settings, or just tap the map.',
+        2: 'Your device could not work out where it is.',
+        3: 'That took too long.',
+      }[err.code] || 'Location unavailable.');
+    },
+    { timeout: 10000, maximumAge: 60000, enableHighAccuracy: false }
   );
 }
 
-function fallbackHere(why) {
-  // Washington DC. Said out loud rather than silently assumed -- a plan built
-  // around the wrong city is worse than one that admits where it thinks it is.
+function restore(btn) {
+  if (btn) { btn.disabled = false; btn.textContent = 'Use my current location'; }
+}
+
+/* Land somewhere real and say where, rather than leaving the donor guessing.
+   A plan built around the wrong city is worse than one that admits its guess. */
+function settle(why) {
   state.coords = state.coords || DEFAULT_COORDS;
-  setHint(`${why} Starting from Washington DC${
-    state.map ? ' — tap the map to move it.' : '.'}`);
+  const placed = state.located || (state.pin && !sameAs(state.coords, DEFAULT_COORDS));
+  setHint(placed
+    ? why
+    : `${why} Starting from Washington DC for now${
+        state.map ? ' — tap the map to move it.' : '.'}`);
   drawRadius();
+}
+
+function sameAs(a, b) {
+  return Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9;
 }
 
 function busy(text) {
