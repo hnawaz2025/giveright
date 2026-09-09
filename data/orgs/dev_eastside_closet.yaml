@@ -14,6 +14,7 @@ verification_source: "SYNTHETIC -- development only"
 accepts:
   winter_coats: poor
   childrens_clothing: fair
+  adult_clothing: fair
   books: poor
   towels: poor
 prohibited:
@@ -28,6 +29,11 @@ needs:
     confirmed_by_org: false
     source_url: "https://example.invalid/eastside-needs"
     shelf_life_days: 14
+  - category: adult_clothing
+    target_qty: 80
+    on_hand_estimate: 12
+    last_verified: 2026-09-04
+    confirmed_by_org: true
   - category: books
     target_qty: 100
     on_hand_estimate: 20

@@ -230,15 +230,17 @@ function found() {
       <p>${esc(q.question)}</p>
       <div class="stake">${esc(q.at_stake)}</div>
       <div class="choices">
-        <button data-a="good">Good</button>
-        <button data-a="worn">Worn</button>
+        ${q.options.map(o =>
+          `<button data-a="${esc(o.value)}">${esc(o.label)}</button>`).join('')}
       </div>
     </div>`).join('');
 
   view.replaceChildren($(`
     <h2>${items.length} thing${items.length === 1 ? '' : 's'} found</h2>
     <div class="card">${list}</div>
-    ${questions.length ? `<h2>One thing to check</h2>${asked}` : ''}
+    ${questions.length
+      ? `<h2>${questions.length === 1 ? 'One thing to check' : 'A few things to check'}</h2>${asked}`
+      : ''}
     <p class="note">${questions.length
       ? `Only ${questions.length} of ${items.length} needed asking &mdash; the rest were decided from the data.`
       : 'Nothing needed asking. Condition would not change where anything goes.'}</p>

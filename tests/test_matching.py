@@ -2,9 +2,12 @@ from datetime import date, timedelta
 
 from giveright.geo import haversine_km, km, proximity
 from giveright.matching import (
+    apply_answers,
     build_plan,
     candidates,
     clarification_for,
+    clarifications,
+    category_clarification,
     evaluate,
 )
 from giveright.models import Condition, Confidence, DeclineReason, MatchBucket
@@ -249,3 +252,96 @@ def test_a_split_item_appears_once_on_the_manifest():
 
     assert len(stop.lines) == 2
     assert [(m.id, m.quantity) for m in stop.manifest()] == [("c", 6)]
+
+
+class TestCategoryClarification:
+    """A photograph shows a shirt, not who owns it. Whether that shirt is
+    children's clothing is a routing decision the photo cannot make."""
+
+    def kids_and_adults(self):
+        kids = org("kids", north_km=1.0,
+                   accepts={"childrens_clothing": Condition.FAIR},
+                   needs=[need("childrens_clothing", target=40, on_hand=2)])
+        adults = org("adults", north_km=2.0,
+                     accepts={"adult_clothing": Condition.FAIR},
+                     needs=[need("adult_clothing", target=40, on_hand=2)])
+        return kids, adults
+
+    def shirt(self, alternatives):
+        return item(id="shirt", category="shirts", alternatives=alternatives)
+
+    def test_it_asks_when_the_two_readings_route_differently(self):
+        kids, adults = self.kids_and_adults()
+        q = category_clarification(
+            self.shirt(["childrens_clothing", "adult_clothing"]),
+            [kids, adults], ORIGIN, RADIUS, today=TODAY,
+        )
+
+        assert q is not None
+        assert q.kind == "category"
+        assert [o[0] for o in q.options] == ["childrens_clothing", "adult_clothing"]
+        assert "different places" in q.at_stake
+
+    def test_it_stays_quiet_when_both_readings_land_in_the_same_place(self):
+        both = org("both", north_km=1.0,
+                   accepts={"childrens_clothing": Condition.FAIR,
+                            "adult_clothing": Condition.FAIR},
+                   needs=[need("childrens_clothing", target=40, on_hand=2),
+                          need("adult_clothing", target=40, on_hand=2)])
+        assert category_clarification(
+            self.shirt(["childrens_clothing", "adult_clothing"]),
+            [both], ORIGIN, RADIUS, today=TODAY,
+        ) is None
+
+    def test_it_stays_quiet_when_vision_was_sure(self):
+        kids, adults = self.kids_and_adults()
+        assert category_clarification(
+            self.shirt([]), [kids, adults], ORIGIN, RADIUS, today=TODAY
+        ) is None
+        assert category_clarification(
+            self.shirt(["childrens_clothing"]), [kids, adults], ORIGIN, RADIUS, today=TODAY
+        ) is None, "one candidate is not a choice"
+
+    def test_it_says_when_only_one_reading_has_anywhere_to_go(self):
+        kids, _ = self.kids_and_adults()
+        q = category_clarification(
+            self.shirt(["childrens_clothing", "adult_clothing"]),
+            [kids], ORIGIN, RADIUS, today=TODAY,
+        )
+        assert q is not None
+        assert "does not" in q.at_stake
+
+    def test_the_answer_changes_where_it_goes(self):
+        kids, adults = self.kids_and_adults()
+        shirt = self.shirt(["childrens_clothing", "adult_clothing"])
+        orgs = [kids, adults]
+
+        questions = clarifications([shirt], orgs, ORIGIN, RADIUS, today=TODAY)
+        apply_answers([shirt], questions, {"shirt": "adult_clothing"})
+
+        assert shirt.category == "adult_clothing"
+        assert shirt.alternatives == []
+        plan = build_plan([shirt], orgs, ORIGIN, RADIUS, today=TODAY)
+        assert plan.stops[0].org.id == "adults"
+
+    def test_an_answer_that_was_not_offered_is_ignored(self):
+        """The donor picks from what was asked; free text does not rewrite the
+        category into something no organisation has heard of."""
+        kids, adults = self.kids_and_adults()
+        shirt = self.shirt(["childrens_clothing", "adult_clothing"])
+        questions = clarifications([shirt], [kids, adults], ORIGIN, RADIUS, today=TODAY)
+
+        apply_answers([shirt], questions, {"shirt": "something_else"})
+
+        assert shirt.category == "shirts"
+
+    def test_category_is_settled_before_condition_is_raised(self):
+        """What a thing is decides who could take it; the condition question may
+        not even arise once that is answered."""
+        kids, adults = self.kids_and_adults()
+        shirt = item(id="shirt", category="shirts", condition=None,
+                     alternatives=["childrens_clothing", "adult_clothing"])
+
+        asked = clarifications([shirt], [kids, adults], ORIGIN, RADIUS, today=TODAY)
+
+        assert [q.kind for q in asked] == ["category"]

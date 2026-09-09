@@ -9,8 +9,8 @@ a locked door, so opening times do not pass through the model.
 Two tools deliberately stop the agent and hand control back to a human, using
 the Strands interrupt mechanism:
 
-  * `ask_donor_about_condition` -- and only for items where the answer changes
-    the destination;
+  * `ask_the_donor` -- and only for the items where the answer changes the
+    destination;
   * `verify_with_org` -- the draft is shown to the donor to approve or add to
     before it is sent. Writing to an organisation on someone's behalf is not a
     decision an agent should make alone.
@@ -24,7 +24,7 @@ from strands import ToolContext, tool
 
 from .fallback import decline_reason_for, resolve
 from .geo import km, miles
-from .matching import build_plan, candidates, clarifications
+from .matching import apply_answers, build_plan, candidates, clarifications, parse_condition
 from .models import Condition, ItemState
 from .observations import record_delivery, record_reply
 from .outreach import (
@@ -38,9 +38,6 @@ from .session import Workspace
 from .state import transition
 from .trends import DonationEvent, dashboard
 from .vision import identify
-
-_CONDITION_WORDS = {c.name.lower(): c for c in Condition}
-
 
 def build_tools(ws: Workspace) -> list:
     """Bind the toolset to one donation run."""
@@ -99,46 +96,51 @@ def build_tools(ws: Workspace) -> list:
         }
 
     @tool(context=True)
-    def ask_donor_about_condition(tool_context: ToolContext) -> dict:
-        """Ask the donor about condition -- but only for the items where the
-        answer changes where the item goes.
+    def ask_the_donor(tool_context: ToolContext) -> dict:
+        """Ask the donor the questions worth asking -- and only those.
+
+        A photograph shows an object, not the facts about it that decide where
+        it goes. Two of those matter often enough to ask about: what condition
+        a thing is in, and who a garment is for. Either is raised only when the
+        plausible answers would send the item somewhere different.
 
         Call this once after identifying the pile. If nothing is at stake it
         returns immediately without bothering anyone, which is the point.
         """
-        pending = clarifications(
-            list(ws.items.values()), ws.orgs, ws.origin, ws.radius_km, today=ws.today
-        )
+        items = list(ws.items.values())
+        pending = clarifications(items, ws.orgs, ws.origin, ws.radius_km, today=ws.today)
         if not pending:
             return {
                 "asked": [],
-                "note": "Nothing to ask -- condition does not change any destination.",
+                "note": (
+                    "Nothing to ask -- neither condition nor category changes any "
+                    "destination."
+                ),
             }
 
+        replies: dict[str, str] = {}
         answered = []
         for question in pending:
             answer = tool_context.interrupt(
-                name=f"condition:{question.item_id}",
-                reason={
-                    "item_id": question.item_id,
-                    "question": question.question,
-                    "at_stake": question.at_stake,
-                },
+                name=f"{question.kind}:{question.item_id}",
+                reason=question.as_dict(),
             )
-            condition = parse_condition(answer)
-            item = ws.item(question.item_id)
-            if item is not None and condition is not None:
-                item.condition = condition
-                if item.state is ItemState.IDENTIFIED:
-                    transition(item, ItemState.CLARIFYING, note="donor asked about condition")
+            replies[question.item_id] = str(answer)
             answered.append(
                 {
                     "item_id": question.item_id,
+                    "asked_about": question.kind,
                     "answer": str(answer),
-                    "condition": condition.name.lower() if condition else None,
                 }
             )
-        return {"asked": answered}
+
+        changed = apply_answers(items, pending, replies)
+        for question in pending:
+            item = ws.item(question.item_id)
+            if item is not None and item.state is ItemState.IDENTIFIED:
+                transition(item, ItemState.CLARIFYING, note=f"donor asked about {question.kind}")
+
+        return {"asked": answered, "changed": changed}
 
     @tool
     def plan_dropoffs() -> dict:
@@ -376,7 +378,7 @@ def build_tools(ws: Workspace) -> list:
     return [
         set_radius,
         identify_pile,
-        ask_donor_about_condition,
+        ask_the_donor,
         plan_dropoffs,
         compare_options,
         resolve_leftovers,
@@ -440,21 +442,6 @@ def _distance(ws: Workspace, org) -> float:
     from .geo import haversine_km
 
     return haversine_km(ws.origin[0], ws.origin[1], org.lat, org.lng)
-
-
-def parse_condition(answer) -> Condition | None:
-    """Donors answer in words, not enums."""
-    text = str(answer).strip().lower()
-    for word, condition in _CONDITION_WORDS.items():
-        if word in text:
-            return condition
-    if any(w in text for w in ("fine", "wearable", "works", "clean", "hand it straight")):
-        return Condition.GOOD
-    if any(w in text for w in ("worn", "stained", "torn", "ripped", "shabby")):
-        return Condition.POOR
-    if any(w in text for w in ("doesn't work", "does not work", "cracked", "snapped")):
-        return Condition.BROKEN
-    return None
 
 
 def _text(answer) -> str:

@@ -76,6 +76,12 @@ For each item:
     obvious newness like an attached tag. Leave it null if the photo does not
     show you, which is the usual case. A guess here is worse than a gap,
     because the donor is asked whenever the answer would change the plan.
+  * alternatives: when the photograph would equally support two of the
+    categories above and you cannot tell which -- a shirt that might be for a
+    child or an adult -- put the plain object in `category` and list those
+    corpus categories here. The donor is asked, but only if the answer would
+    send the item somewhere different. Leave it empty when the photo does tell
+    you.
   * note: anything visible that changes where it can go -- a size label you can
     actually read, a date stamp on a car seat, visible damage. Leave it empty
     rather than filling it with an impression.
@@ -86,6 +92,13 @@ Do not include rubbish, packaging, or the floor.
 
 class SeenItem(BaseModel):
     category: str = Field(description="snake_case category")
+    alternatives: list[str] = Field(
+        default_factory=list,
+        description=(
+            "corpus categories this could equally be, when the photograph "
+            "cannot settle it; empty when it can"
+        ),
+    )
     description: str = Field(default="", description="what it looks like, briefly")
     quantity: int = Field(default=1, ge=1)
     condition_hint: str | None = Field(
@@ -116,6 +129,11 @@ def to_items(pile: Pile, *, prefix: str = "item") -> list[Item]:
             Item(
                 id=f"{prefix}_{n:02d}",
                 category=seen.category.strip().lower().replace(" ", "_"),
+                alternatives=[
+                    a.strip().lower().replace(" ", "_")
+                    for a in seen.alternatives
+                    if a.strip()
+                ],
                 description=seen.description,
                 quantity=max(1, seen.quantity),
                 condition=_condition(seen.condition_hint),

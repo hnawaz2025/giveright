@@ -73,15 +73,16 @@ def test_radius_is_enforced_as_a_promise(ws, loaded):
 
 def test_the_donor_is_asked_only_about_what_changes_the_plan(loaded):
     ctx = FakeContext(default="a bit worn")
-    out = loaded["ask_donor_about_condition"](tool_context=ctx)
+    out = loaded["ask_the_donor"](tool_context=ctx)
 
     asked = {a["item_id"] for a in out["asked"]}
     assert asked == {"pile_01_02"}, "only the towels' condition changes a destination"
     assert ctx.raised[0][1]["at_stake"]
+    assert ctx.raised[0][1]["kind"] == "condition"
 
 
 def test_the_answer_actually_moves_the_item(ws, loaded):
-    loaded["ask_donor_about_condition"](tool_context=FakeContext(default="worn and stained"))
+    loaded["ask_the_donor"](tool_context=FakeContext(default="worn and stained"))
     assert ws.item("pile_01_02").condition is Condition.POOR
 
     stop = next(
@@ -94,7 +95,7 @@ def test_the_answer_actually_moves_the_item(ws, loaded):
 def test_nothing_is_asked_when_nothing_is_at_stake(ws, tools):
     ws.add([Item(id="solo", category="books", condition=Condition.GOOD)])
     ctx = FakeContext()
-    assert tools["ask_donor_about_condition"](tool_context=ctx)["asked"] == []
+    assert tools["ask_the_donor"](tool_context=ctx)["asked"] == []
     assert ctx.raised == []
 
 

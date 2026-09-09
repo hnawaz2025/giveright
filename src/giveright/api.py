@@ -29,14 +29,13 @@ from pydantic import BaseModel, Field
 from .corpus import load_orgs
 from .fallback import decline_reason_for, resolve
 from .geo import km
-from .matching import build_plan, clarifications
+from .matching import apply_answers, build_plan, clarifications
 from .models import ItemState
 from .outreach import confirmation_message, verification_message
 from .observations import ObservationLog, record_delivery
 from .session import Workspace
 from .state import transition
 from .text import plural
-from .tools import parse_condition
 from .trends import DonationEvent, Ledger, dashboard
 from .vision import identify
 
@@ -204,13 +203,14 @@ def make_plan(run_id: str, body: Answers) -> dict:
     """
     ws = _session(run_id)
 
-    for item_id, answer in body.answers.items():
-        item = ws.item(item_id)
-        condition = parse_condition(answer)
-        if item is not None and condition is not None:
-            item.condition = condition
+    items = list(ws.items.values())
+    apply_answers(
+        items,
+        clarifications(items, ws.orgs, ws.origin, ws.radius_km),
+        body.answers,
+    )
 
-    plan = build_plan(list(ws.items.values()), ws.orgs, ws.origin, ws.radius_km)
+    plan = build_plan(items, ws.orgs, ws.origin, ws.radius_km)
     ws.plan = plan
 
     resolved = []

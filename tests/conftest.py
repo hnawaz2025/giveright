@@ -41,8 +41,10 @@ def need(category="winter_coats", target=50, on_hand=0,
     )
 
 
-def item(id="i1", category="winter_coats", condition=Condition.GOOD, qty=1, **kw):
-    return Item(id=id, category=category, condition=condition, quantity=qty, **kw)
+def item(id="i1", category="winter_coats", condition=Condition.GOOD, qty=1,
+         alternatives=None, **kw):
+    return Item(id=id, category=category, condition=condition, quantity=qty,
+                alternatives=list(alternatives or []), **kw)
 
 
 @pytest.fixture(autouse=True)

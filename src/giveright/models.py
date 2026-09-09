@@ -182,6 +182,10 @@ class Item:
     quantity: int = 1
     condition: Condition | None = None       # None until asked or assumed
     attributes: dict[str, str] = field(default_factory=dict)
+    # Corpus categories the photograph would equally support. Non-empty means
+    # vision saw the object but could not settle a fact about it that routing
+    # depends on -- who a garment is for, typically.
+    alternatives: list[str] = field(default_factory=list)
     state: ItemState = ItemState.IDENTIFIED
     assigned_org_id: str | None = None
     decline_reason: DeclineReason | None = None

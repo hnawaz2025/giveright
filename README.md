@@ -78,9 +78,15 @@ flowchart TB
         A["Agent<br/><small>system prompt written as refusals</small>"]
     end
 
+    subgraph ui["Web app -- mobile first, one static file"]
+        W["photo + radius<br/><small>camera capture</small>"]
+        Q["the one question<br/>worth asking"]
+        PL["the plan, with<br/>its reasons"]
+    end
+
     subgraph tools["Tools -- 11, each a wrapper over a deterministic function"]
         T1["identify_pile"]
-        T2["ask_donor_about_condition<br/><small>Strands interrupt</small>"]
+        T2["ask_the_donor<br/><small>Strands interrupt</small>"]
         T3["plan_dropoffs / compare_options"]
         T4["resolve_leftovers"]
         T5["message_org / record_org_reply"]
@@ -101,8 +107,13 @@ flowchart TB
         L[("data/ledger.jsonl")]
     end
 
-    V["Bedrock<br/>Claude Sonnet 4.5"]
+    V["Bedrock<br/>Amazon Nova Pro"]
 
+    R --> W
+    P --> W
+    W -->|"POST /runs"| M
+    Q -->|"POST /runs/id/plan"| M
+    M --> PL
     R --> A
     P --> A
     A <--> T1 & T2 & T3 & T4 & T5 & T6 & T7
@@ -157,10 +168,15 @@ whoever they like. The agent does not.
 
 ## Status
 
-Phases A and B complete and under test (91 tests, no network, no credentials):
-domain model, item state machine, corpus loader, geo, shortfall ranking, the
-clarification rule, the no-dead-ends chain, org write-back, the neighbourhood
-ledger, the eleven-tool Strands agent, an HTTP surface and a runnable demo.
+Working end to end and under test (100 tests, no network, no credentials): the
+domain model and item state machine, the organization corpus and its
+append-only observation log, distance ranking, the clarification rule, the
+no-dead-ends chain, the neighbourhood ledger, the eleven-tool Strands agent, an
+HTTP API and a mobile web app, plus a deterministic terminal demo.
+
+Models run on Amazon Bedrock, defaulting to Amazon Nova Pro, and both model
+roles are set from the environment so comparing models is a shell variable
+rather than a diff.
 
 `data/orgs/dev_*.yaml` are clearly-marked synthetic fixtures. Real Washington DC
 organizations are added with sources and verification dates before any demo --
@@ -177,7 +193,7 @@ src/giveright/
   observations.py  append-only log of what the agent observed, replayed on load
   geo.py       distance, and the radius as a hard promise
   text.py      singular/plural, because donor-facing strings are the product
-  matching.py  shortfall ranking, the clarification rule, plan building
+  matching.py  distance ranking, the clarification rule, plan building
   fallback.py  no dead ends: hold -> reuse -> recycle -> disposal
   trends.py    ledger, surge detection with a significance floor, gaps
   vision.py    photo -> items, cached to a fixture so the core needs no model
@@ -185,7 +201,9 @@ src/giveright/
   session.py   the state one donation run carries between tool calls
   tools.py     the eleven Strands tools
   agent.py     the agent and its system prompt
+  llm.py       which model does what; both roles set from the environment
   api.py       HTTP surface
+  static/      the mobile web app: one file, no build step, no CDN
   demo.py      a terminal walkthrough
 data/orgs/     one YAML per organization, hand-curated, never machine-written
 data/observations.jsonl  deliveries and org replies, replayed onto the corpus
@@ -197,11 +215,15 @@ data/pathways.yaml  reuse / recycle / disposal routes per category
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest                                  # 91 tests, no model, no network
+.venv/bin/pytest                                  # 100 tests, no model, no network
 .venv/bin/python -m giveright.demo --fresh --today 2026-09-07   # reproducible run
 .venv/bin/python -m giveright.demo --agent        # the same flow, driven by the model
-.venv/bin/uvicorn giveright.api:app --reload      # HTTP surface + dashboard
+.venv/bin/uvicorn giveright.api:app --host 0.0.0.0   # the web app, on http://<your-ip>:8000
 ```
+
+Open that address on a phone. `capture="environment"` opens the camera rather
+than a file picker, which is the point: the premise is photographing a pile in
+your hallway.
 
 The deterministic run is not a mock. It is the same matching, ranking, fallback
 and outreach code the agent calls; only the identification step reads a cached

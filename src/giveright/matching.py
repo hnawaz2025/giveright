@@ -18,9 +18,12 @@ become, so pricing it at 0.55 was inventing a number to dress up a real one.
 carries its date, and the agent offers to email or ring the organisation to
 find out. Resolving the uncertainty beats guessing at its size.
 
-**Only ask when the answer changes the answer.** The donor is asked about an
-item's condition only when the two plausible answers produce different plans.
-Everything else is decided from the corpus without bothering anyone.
+**Only ask when the answer changes the answer.** A photograph shows an object,
+not the facts about it that decide where it goes. Two of those facts are
+unobservable often enough to matter: what condition a thing is in, and -- for
+clothing especially -- who it is for. The donor is asked about either one only
+when the plausible answers produce different plans. Everything else is decided
+from the corpus without bothering anyone.
 
 Nothing in this module calls a model. Every `reason` string is assembled from
 corpus facts, so it can be shown to a donor as a claim about the world.
@@ -264,12 +267,113 @@ def candidates(
 
 @dataclass(frozen=True)
 class Clarification:
+    """One question worth interrupting a donor for."""
+
     item_id: str
+    kind: str                                  # "condition" | "category"
     question: str
-    at_stake: str          # what changes depending on the answer
+    at_stake: str                              # what changes depending on the answer
+    options: tuple[tuple[str, str], ...] = ()  # (value, label the donor sees)
 
     def as_dict(self) -> dict:
-        return {"item_id": self.item_id, "question": self.question, "at_stake": self.at_stake}
+        return {
+            "item_id": self.item_id,
+            "kind": self.kind,
+            "question": self.question,
+            "at_stake": self.at_stake,
+            "options": [{"value": v, "label": l} for v, l in self.options],
+        }
+
+
+CONDITION_WORDS = {c.name.lower(): c for c in Condition}
+
+
+def parse_condition(answer) -> Condition | None:
+    """Donors answer in words, not enums.
+
+    Lives here rather than with the tools because it is half of applying a
+    clarification, and the API, the agent and the tests all need the same
+    reading of "a bit worn".
+    """
+    text = str(answer).strip().lower()
+    for word, condition in CONDITION_WORDS.items():
+        if word in text:
+            return condition
+    if any(w in text for w in ("fine", "wearable", "works", "clean", "hand it straight")):
+        return Condition.GOOD
+    if any(w in text for w in ("worn", "stained", "torn", "ripped", "shabby")):
+        return Condition.POOR
+    if any(w in text for w in ("doesn't work", "does not work", "cracked", "snapped")):
+        return Condition.BROKEN
+    return None
+
+
+def _best_org(
+    item: Item,
+    orgs: list[Org],
+    origin: tuple[float, float],
+    radius_km: float,
+    today: date | None,
+    *,
+    assume: Condition | None = None,
+) -> str | None:
+    top = candidates(item, orgs, origin, radius_km, today=today, assume=assume)
+    usable = [e for e in top if e.usable]
+    return usable[0].org_id if usable else None
+
+
+def category_clarification(
+    item: Item,
+    orgs: list[Org],
+    origin: tuple[float, float],
+    radius_km: float,
+    *,
+    today: date | None = None,
+) -> Clarification | None:
+    """Ask which category an item really is, when the photograph cannot say.
+
+    Vision reports the object it can see -- `shirts` -- and lists the corpus
+    categories the photograph would equally support, because whether a shirt is
+    children's clothing is a fact about its owner and owners are not visible.
+    The question is asked only if those candidates would be routed differently.
+    """
+    if len(item.alternatives) < 2:
+        return None
+
+    # Only the candidates are weighed. The observed category is what the item
+    # stays as if the donor does not answer -- it is the fallback, not a choice,
+    # and offering it made unambiguous piles look ambiguous.
+    destinations = {
+        category: _best_org(
+            replace(item, category=category), orgs, origin, radius_km, today
+        )
+        for category in item.alternatives
+    }
+
+    if len(set(destinations.values())) < 2:
+        return None                              # same answer whichever it is
+
+    placed = [c for c, org in destinations.items() if org is not None]
+    homeless = [c for c, org in destinations.items() if org is None]
+
+    if homeless and placed:
+        at_stake = (
+            f"{plural(placed[0]).capitalize()} has somewhere to go within your "
+            f"radius; {plural(homeless[0])} does not."
+        )
+    else:
+        at_stake = (
+            f"{plural(placed[0]).capitalize()} and {plural(placed[-1])} go to "
+            f"different places."
+        )
+
+    return Clarification(
+        item_id=item.id,
+        kind="category",
+        question=f"The photo shows {plural(item.category)} -- which is it?",
+        at_stake=at_stake,
+        options=tuple((c, plural(c).capitalize()) for c in item.alternatives),
+    )
 
 
 def clarification_for(
@@ -309,12 +413,14 @@ def clarification_for(
 
     return Clarification(
         item_id=item.id,
+        kind="condition",
         question=(
             f"What condition {verb(item.quantity, 'is', 'are')} the "
             f"{label(item.category, item.quantity)} in -- good enough to hand "
             f"straight to someone, or worn?"
         ),
         at_stake=at_stake,
+        options=(("good", "Good"), ("worn", "Worn")),
     )
 
 
@@ -326,8 +432,51 @@ def clarifications(
     *,
     today: date | None = None,
 ) -> list[Clarification]:
-    out = [clarification_for(i, orgs, origin, radius_km, today=today) for i in items]
-    return [c for c in out if c is not None]
+    """Every question worth asking, and no others.
+
+    Category comes first: what a thing *is* decides who could take it, and the
+    condition question may not even arise once that is settled.
+    """
+    out: list[Clarification] = []
+    for item in items:
+        found = category_clarification(item, orgs, origin, radius_km, today=today)
+        if found is None:
+            found = clarification_for(item, orgs, origin, radius_km, today=today)
+        if found is not None:
+            out.append(found)
+    return out
+
+
+def apply_answers(
+    items: list[Item], questions: list[Clarification], answers: dict[str, str]
+) -> list[str]:
+    """Fold the donor's replies back into the items. Returns what changed.
+
+    Shared by the API and the agent so a donor's "a bit worn" means the same
+    thing wherever it was typed.
+    """
+    by_id = {i.id: i for i in items}
+    asked = {q.item_id: q for q in questions}
+    changed = []
+
+    for item_id, answer in answers.items():
+        item, question = by_id.get(item_id), asked.get(item_id)
+        if item is None or question is None:
+            continue
+
+        if question.kind == "category":
+            allowed = {v for v, _l in question.options}
+            if str(answer) in allowed:
+                item.category = str(answer)
+                item.alternatives = []
+                changed.append(f"{item_id} is {plural(item.category)}")
+        else:
+            condition = parse_condition(answer)
+            if condition is not None:
+                item.condition = condition
+                changed.append(f"{item_id} is {condition.name.lower()}")
+
+    return changed
 
 
 # --------------------------------------------------------------------------
