@@ -1,0 +1,26 @@
+# Render blueprint. `render.yaml` is committed so a deployment is reproducible
+# rather than a set of console clicks nobody wrote down.
+#
+# Why not AWS: App Runner closed to new customers on 30 April 2026, Lambda does
+# not suit an app that holds runs in memory, and ECS or EC2 is a day of work
+# this project does not have. AgentCore Runtime is the right AWS home for the
+# agent itself once Bedrock is reachable; this is the web app.
+services:
+  - type: web
+    name: giveright
+    runtime: python
+    plan: free
+    # One instance, deliberately. Runs are held in memory (see api.py), so a
+    # second instance would answer with "that run has expired" half the time.
+    numInstances: 1
+    buildCommand: pip install -e .
+    startCommand: uvicorn giveright.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: AWS_REGION
+        value: us-east-1
+      # Set in the Render dashboard, never here.
+      - key: AWS_BEARER_TOKEN_BEDROCK
+        sync: false

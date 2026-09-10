@@ -366,6 +366,25 @@ correct for real use and unhelpful halfway through a video.
 `--agent` needs AWS credentials with Bedrock access to
 `us.anthropic.claude-sonnet-4-5-20250929-v1:0`.
 
+## Deploying
+
+```bash
+# render.yaml is committed, so this is reproducible rather than console clicks
+# nobody wrote down. Connect the repo at render.com and it reads the blueprint.
+```
+
+One instance, deliberately: runs are held in memory, so a second would answer
+"that run has expired" about half the time. Set `AWS_BEARER_TOKEN_BEDROCK` in
+the dashboard rather than the file.
+
+HTTPS matters beyond the padlock -- browsers only share location in a secure
+context, so the "use my current location" button cannot work over plain HTTP.
+
+Not AWS, and worth saying why: App Runner closed to new customers on 30 April
+2026, Lambda does not suit an app holding runs in memory, and ECS or EC2 is a
+day of work. AgentCore Runtime is the right AWS home for the *agent* once
+Bedrock is reachable; this is the web app.
+
 ## License
 
 MIT -- see [LICENSE](LICENSE).
