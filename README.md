@@ -200,6 +200,44 @@ The arrow back from `record_org_reply` to `data/orgs/` is the maintenance
 story. Nobody is asked to keep a profile up to date; an organisation taps one
 of three buttons on a donation offer and that reply *is* the update.
 
+## Control surfaces, not just a tool list
+
+The model decides what to do next. What it is *allowed* to do is enforced
+outside it, by three Strands mechanisms rather than by convention.
+
+**Policy** — `policy.py` is an `InterventionHandler`. These rules used to be
+`if` statements inside individual tools, which meant that knowing what the
+agent could not do required reading twelve functions and trusting none had
+drifted. Stated once, they are provable:
+
+| | |
+| --- | --- |
+| Widening the radius the donor chose | `Deny` |
+| Contacting an organization nobody is being sent to | `Deny` |
+| Recording a delivery that never happened | `Deny` |
+| Removing a category from an org's record forever | `Confirm` |
+| Planning before there is a pile | `Guide` |
+
+**Audit** — `audit.py` is a `HookProvider` on the tool and invocation events.
+Recording in the framework rather than in the tools is deliberate: a log the
+tools wrote could only record what the tools chose to admit, and would miss a
+call denied before it ran. A run reads back as a timeline:
+
+```
+  → plan_dropoffs()
+    ✗ GUIDANCE: There is no pile yet. Call identify_pile ... first.
+  → identify_pile(image_path=…/pile_01.jpg)
+    ✓ items=6, unknown_to_the_corpus=0
+  → set_radius(radius_miles=250)
+    ✗ DENIED: 250 miles is beyond the 50 the donor can choose.
+  → record_dropoff(item_id=pile_01_01)
+    ✗ DENIED: pile_01_01 is identified. A plan is not a delivery.
+  → plan_dropoffs()
+    ✓ radius_mi=8.0, stops=4, verification_offers=1, unplaced=2
+```
+
+**Interrupts** — below.
+
 ## Interrupts, not notifications
 
 The agent stops and hands control back exactly twice, both through the Strands
@@ -227,7 +265,7 @@ whoever they like. The agent does not.
 
 ## Status
 
-Working end to end and under test (142 tests, no network, no credentials): the
+Working end to end and under test (171 tests, no network, no credentials): the
 domain model and item state machine, the organization corpus and its
 append-only observation log, distance ranking, the clarification rule, the
 no-dead-ends chain, the neighbourhood ledger, the twelve-tool Strands agent, an
@@ -263,6 +301,8 @@ src/giveright/
   tools.py     the eleven Strands tools
   agent.py     the agent and its system prompt
   llm.py       which model does what; both roles set from the environment
+  audit.py     Strands hooks: what the agent did, append-only
+  policy.py    Strands interventions: what it is not allowed to do
   api.py       HTTP surface
   static/      the mobile web app: one file, no build step, no CDN
   demo.py      a terminal walkthrough
@@ -278,7 +318,7 @@ data/pathways.yaml  reuse / recycle / disposal routes per category
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest                                  # 142 tests, no model, no network
+.venv/bin/pytest                                  # 171 tests, no model, no network
 .venv/bin/python -m giveright.demo --fresh --today 2026-09-07   # reproducible run
 .venv/bin/python -m giveright.demo --agent        # the same flow, driven by the model
 .venv/bin/uvicorn giveright.api:app --host 0.0.0.0   # the web app, on http://<your-ip>:8000

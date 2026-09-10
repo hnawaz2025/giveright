@@ -41,6 +41,7 @@ class Workspace:
     observations: ObservationLog = field(default_factory=ObservationLog)
     holds: HoldLog = field(default_factory=HoldLog)
     audit: object | None = None
+    policy: object | None = None
 
     @classmethod
     def open(
