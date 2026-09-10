@@ -36,14 +36,20 @@ def main() -> int:
     from botocore.exceptions import ClientError, NoCredentialsError
 
     step(1, "Credentials")
+    from giveright.llm import using_api_key
+
+    if using_api_key():
+        print(f"    {OK}  Bedrock API key found in AWS_BEARER_TOKEN_BEDROCK")
+
     session = boto3.Session()
-    if session.get_credentials() is None:
+    if session.get_credentials() is None and not using_api_key():
         fail(
             "boto3 cannot find any credentials.",
             "write ~/.aws/credentials with an access key, or export "
             "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY",
         )
-    print(f"    {OK}  found via {session.get_credentials().method}")
+    elif session.get_credentials() is not None:
+        print(f"    {OK}  found via {session.get_credentials().method}")
 
     step(2, "Region")
     region = session.region_name
@@ -58,15 +64,20 @@ def main() -> int:
     print(f"    {OK}  {region}")
 
     step(3, "Identity")
-    try:
-        who = session.client("sts").get_caller_identity()
-        print(f"    {OK}  {who['Arn']}")
-    except (ClientError, NoCredentialsError) as exc:
-        fail(str(exc), "the access key is wrong, disabled, or deleted")
+    if using_api_key() and session.get_credentials() is None:
+        # A Bedrock API key signs Bedrock calls only. STS will refuse it, and
+        # that is correct rather than a problem to report.
+        print("    --  skipped: an API key signs Bedrock calls, not STS")
+    else:
+        try:
+            who = session.client("sts").get_caller_identity()
+            print(f"    {OK}  {who['Arn']}")
+        except (ClientError, NoCredentialsError) as exc:
+            fail(str(exc), "the access key is wrong, disabled, or deleted")
 
     step(4, "Model access")
     try:
-        bedrock = session.client("bedrock")
+        bedrock = session.client("bedrock", region_name=region)
         ids = {m["modelId"] for m in bedrock.list_foundation_models()["modelSummaries"]}
         if UNDERLYING in ids:
             print(f"    {OK}  {UNDERLYING} is listed in {region}")

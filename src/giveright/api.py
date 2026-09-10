@@ -31,6 +31,7 @@ from .corpus import load_orgs
 from .fallback import decline_reason_for, resolve
 from .geo import haversine_km, km
 from .limits import RateLimiter
+from .llm import using_api_key
 from .matching import apply_answers, build_plan, clarifications
 from .models import ItemState
 from .outreach import confirmation_message, verification_message
@@ -88,6 +89,7 @@ def health() -> dict:
         "ok": True,
         "curated_organisations": len(load_orgs()),
         "registry_organisations": registry.count(),
+        "auth": "bedrock api key" if using_api_key() else "aws credentials",
         "identifications_this_hour": LIMITER.used_this_hour(),
         "hourly_ceiling": LIMITER.hourly_ceiling,
     }

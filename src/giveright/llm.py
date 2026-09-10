@@ -23,6 +23,13 @@ from __future__ import annotations
 
 import os
 
+from .env import load as _load_dotenv
+
+# Read .env before anything below looks at the environment, so a Bedrock API
+# key or a model override kept there takes effect for every entry point --
+# the CLI, the API, the tests -- without each of them having to remember.
+_load_dotenv()
+
 # Multimodal, mid-tier, streaming. The default for both roles.
 NOVA_PRO = "us.amazon.nova-pro-v1:0"
 
@@ -37,7 +44,18 @@ AGENT_MODEL_ID = os.environ.get("GIVERIGHT_AGENT_MODEL", NOVA_PRO)
 
 def bedrock(model_id: str):
     """A Bedrock model handle. Imported lazily so the deterministic core, the
-    tests and the offline demo never need Strands' model layer or credentials."""
+    tests and the offline demo never need Strands' model layer or credentials.
+
+    Authentication is left entirely to botocore, which accepts either ordinary
+    AWS credentials or a Bedrock API key in `AWS_BEARER_TOKEN_BEDROCK`. Nothing
+    here inspects or handles the key, which is the point -- a credential this
+    code never touches is one it cannot leak.
+    """
     from strands.models import BedrockModel
 
     return BedrockModel(model_id=model_id)
+
+
+def using_api_key() -> bool:
+    """Whether a Bedrock API key is in play, for diagnostics. Never the key."""
+    return bool(os.environ.get("AWS_BEARER_TOKEN_BEDROCK"))
