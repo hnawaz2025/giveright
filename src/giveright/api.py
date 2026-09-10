@@ -22,7 +22,7 @@ from datetime import date
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -30,6 +30,7 @@ from . import registry
 from .corpus import load_orgs
 from .fallback import decline_reason_for, resolve
 from .geo import haversine_km, km
+from .limits import RateLimiter
 from .matching import apply_answers, build_plan, clarifications
 from .models import ItemState
 from .outreach import confirmation_message, verification_message
@@ -55,6 +56,21 @@ def _workspace(lat: float, lng: float, radius_miles: float) -> Workspace:
 
 
 STATIC = Path(__file__).resolve().parent / "static"
+# Guards the one endpoint that spends money. See limits.py for why there are
+# two limits rather than one.
+LIMITER = RateLimiter()
+
+
+def _client(request: Request) -> str:
+    """Who to charge a request to. Behind a proxy the socket is the proxy, so
+    the forwarded address is preferred where present -- spoofable, but this is
+    a spend guard rather than an access control."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 MAP_LIMIT = 300   # plotted; the true count in radius is reported alongside
 SAMPLE_PILE = Path(__file__).resolve().parents[2] / "data" / "fixtures" / "pile_01.jpg"
 
@@ -68,7 +84,13 @@ def ui() -> FileResponse:
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "organisations": len(load_orgs())}
+    return {
+        "ok": True,
+        "curated_organisations": len(load_orgs()),
+        "registry_organisations": registry.count(),
+        "identifications_this_hour": LIMITER.used_this_hour(),
+        "hourly_ceiling": LIMITER.hourly_ceiling,
+    }
 
 
 @app.get("/orgs")
@@ -226,6 +248,7 @@ def _session(run_id: str) -> Workspace:
 
 @app.post("/runs")
 async def start_run(
+    request: Request,
     photo: UploadFile = File(..., description="a photograph of the pile"),
     latitude: float = Form(...),
     longitude: float = Form(...),
@@ -239,6 +262,10 @@ async def start_run(
     """
     if radius_miles <= 0:
         raise HTTPException(400, "radius_miles must be greater than zero")
+
+    refused = LIMITER.check(_client(request))
+    if refused:
+        raise HTTPException(429, refused)
 
     ws = _workspace(latitude, longitude, radius_miles)
 

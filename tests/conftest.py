@@ -9,6 +9,7 @@ from datetime import date
 
 import pytest
 
+from giveright.limits import RateLimiter
 from giveright.models import Condition, Item, Need, Org
 
 ORIGIN = (38.9000, -77.0000)
@@ -64,6 +65,9 @@ def never_touch_the_real_data_directory(tmp_path, monkeypatch):
     # contents change every time it is rebuilt. Tests that assert on a plan
     # must see the fixtures and nothing else.
     monkeypatch.setattr("giveright.registry.REGISTRY_FILE", tmp_path / "registry.sqlite")
+    # The rate limiter is module-level and accumulates, so without this a test
+    # that uploads several photos silently rations the next test's.
+    monkeypatch.setattr("giveright.api.LIMITER", RateLimiter())
     monkeypatch.setattr("giveright.vision.RUNTIME_CACHE_DIR", tmp_path / "cache")
 
 

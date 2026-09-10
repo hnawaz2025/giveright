@@ -253,6 +253,13 @@ skill is activated the agent is unscoped, which is correct — it has not yet sa
 what it is doing. Descriptions go in the system prompt; the instructions load
 only when a skill is activated.
 
+**Limits** — `POST /runs` is the only endpoint that spends money, and a public
+demo URL is open to whoever finds it. Two limits, because they stop different
+things: a token bucket per client so one person cannot exhaust the service, and
+a hard hourly ceiling across everyone, which is what stands between a shared
+link and a bill. Reading organisations and the dashboard are never rationed,
+and neither is the sample run, since it calls no model.
+
 **Interrupts** — below.
 
 ## Interrupts, not notifications
@@ -282,7 +289,7 @@ whoever they like. The agent does not.
 
 ## Status
 
-Working end to end and under test (180 tests, no network, no credentials): the
+Working end to end and under test (191 tests, no network, no credentials): the
 domain model and item state machine, the organization corpus and its
 append-only observation log, distance ranking, the clarification rule, the
 no-dead-ends chain, the neighbourhood ledger, the twelve-tool Strands agent, an
@@ -320,6 +327,7 @@ src/giveright/
   llm.py       which model does what; both roles set from the environment
   audit.py     Strands hooks: what the agent did, append-only
   policy.py    Strands interventions: what it is not allowed to do
+  limits.py    rate limiting on the endpoint that calls a model
 skills/        one SKILL.md per skill, each with its own allowed-tools
   api.py       HTTP surface
   static/      the mobile web app: one file, no build step, no CDN
@@ -336,7 +344,7 @@ data/pathways.yaml  reuse / recycle / disposal routes per category
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest                                  # 180 tests, no model, no network
+.venv/bin/pytest                                  # 191 tests, no model, no network
 .venv/bin/python -m giveright.demo --fresh --today 2026-09-07   # reproducible run
 .venv/bin/python -m giveright.demo --agent        # the same flow, driven by the model
 .venv/bin/uvicorn giveright.api:app --host 0.0.0.0   # the web app, on http://<your-ip>:8000
