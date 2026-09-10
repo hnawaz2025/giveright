@@ -16,6 +16,7 @@ from pathlib import Path
 
 from strands import Agent
 
+from .audit import AuditLog
 from .llm import AGENT_MODEL_ID, bedrock
 from .session import Workspace
 from .tools import build_tools
@@ -84,6 +85,7 @@ def build_agent(
     *,
     model=None,
     model_id: str = AGENT_MODEL_ID,
+    audit: AuditLog | None = None,
     **kwargs,
 ) -> Agent:
     """Wire the toolset to a model. `model` is injected in tests so nothing here
@@ -91,10 +93,13 @@ def build_agent(
     if model is None:
         model = bedrock(model_id)
 
+    ws.audit = audit if audit is not None else AuditLog()
+
     return Agent(
         model=model,
         system_prompt=SYSTEM_PROMPT,
         tools=build_tools(ws),
+        hooks=[ws.audit],
         name="giveright",
         description="Routes a photographed pile of donations to the organisations "
                     "that are actually short of those things.",

@@ -13,3 +13,4 @@ data/ledger.jsonl
 data/observations.jsonl
 data/cache/
 data/held.jsonl
+data/audit.jsonl

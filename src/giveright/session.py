@@ -40,6 +40,7 @@ class Workspace:
     curated: list[Org] = field(default_factory=list)
     observations: ObservationLog = field(default_factory=ObservationLog)
     holds: HoldLog = field(default_factory=HoldLog)
+    audit: object | None = None
 
     @classmethod
     def open(
