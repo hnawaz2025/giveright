@@ -32,6 +32,8 @@ from typing import Any
 from strands.hooks import BeforeToolCallEvent
 from strands.interventions import Confirm, Deny, Guide, InterventionHandler, Proceed
 
+from pathlib import Path
+
 from .geo import miles
 from .models import ItemState
 from .session import Workspace
@@ -49,15 +51,38 @@ NEEDS_A_PILE = {"plan_dropoffs", "ask_the_donor", "compare_options", "resolve_le
 # Nothing can be resolved or delivered before a plan exists.
 NEEDS_A_PLAN = {"resolve_leftovers", "message_org", "verify_with_org"}
 
+# Always reachable: the agent must be able to change which skill it is in.
+ALWAYS = {"skills"}
+
+
+SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills"
+
+
+def load_skill_permissions(directory: Path | None = None) -> dict[str, list[str]]:
+    """`allowed-tools` from every SKILL.md, as a permission table."""
+    from strands import Skill
+
+    directory = directory or SKILLS_DIR
+    if not directory.exists():
+        return {}
+    return {s.name: list(s.allowed_tools or []) for s in Skill.from_directory(directory)}
+
 
 class GiveRightPolicy(InterventionHandler):
     """The rules, enforced before a tool runs."""
 
     name = "giveright-policy"
 
-    def __init__(self, ws: Workspace, *, confirm_corpus_writes: bool = True):
+    def __init__(
+        self,
+        ws: Workspace,
+        *,
+        confirm_corpus_writes: bool = True,
+        skills: dict[str, list[str]] | None = None,
+    ):
         self.ws = ws
         self.confirm_corpus_writes = confirm_corpus_writes
+        self.skills = skills if skills is not None else load_skill_permissions()
         self.denied: list[tuple[str, str]] = []      # (tool, why), for tests and logs
 
     def before_tool_call(self, event: BeforeToolCallEvent, **kwargs: Any):
@@ -66,6 +91,7 @@ class GiveRightPolicy(InterventionHandler):
         args = use.get("input") or {}
 
         for check in (
+            self._within_the_active_skill,
             self._pile_first,
             self._plan_first,
             self._radius_is_the_donors,
@@ -80,6 +106,42 @@ class GiveRightPolicy(InterventionHandler):
                 return verdict
 
         return Proceed()
+
+    # -- least privilege ----------------------------------------------------
+
+    def _within_the_active_skill(self, tool: str, args: dict):
+        """A skill's `allowed-tools` is a permission, not a suggestion.
+
+        Strands reads that list and shows it to the model, but leaves every
+        tool callable -- so an agent working through `org-outreach` could still
+        write to the ledger if it decided to. Here it cannot. The outreach
+        skill can talk to organisations and nothing else; the watch skill can
+        read and nothing else.
+
+        Before any skill is activated the agent is unscoped, which is correct:
+        it has not yet said what it is doing.
+        """
+        active = self._active_skills()
+        if not active or tool in ALWAYS:
+            return None
+
+        permitted = set().union(*(self.tools_for(name) for name in active))
+        if not permitted or tool in permitted:
+            return None
+
+        return Deny(
+            f"{tool} is not part of the {', '.join(sorted(active))} skill. "
+            f"Activate the skill that owns it, or stay within this one."
+        )
+
+    def _active_skills(self) -> set[str]:
+        state = getattr(self.ws, "skill_state", None)
+        if callable(state):
+            state = state()
+        return set(state or ())
+
+    def tools_for(self, skill_name: str) -> set[str]:
+        return set(self.skills.get(skill_name, ()))
 
     # -- ordering -----------------------------------------------------------
 

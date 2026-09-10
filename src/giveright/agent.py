@@ -14,11 +14,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from strands import Agent
+from strands import Agent, AgentSkills
 
 from .audit import AuditLog
 from .llm import AGENT_MODEL_ID, bedrock
-from .policy import GiveRightPolicy
+from .policy import SKILLS_DIR, GiveRightPolicy
 from .session import Workspace
 from .tools import build_tools
 
@@ -88,6 +88,7 @@ def build_agent(
     model_id: str = AGENT_MODEL_ID,
     audit: AuditLog | None = None,
     policy: GiveRightPolicy | None = None,
+    skills: bool = True,
     **kwargs,
 ) -> Agent:
     """Wire the toolset to a model. `model` is injected in tests so nothing here
@@ -98,17 +99,30 @@ def build_agent(
     ws.audit = audit if audit is not None else AuditLog()
     ws.policy = policy if policy is not None else GiveRightPolicy(ws)
 
-    return Agent(
+    plugins = list(kwargs.pop("plugins", []))
+    if skills and SKILLS_DIR.exists():
+        plugins.append(AgentSkills(skills=str(SKILLS_DIR)))
+
+    agent = Agent(
         model=model,
         system_prompt=SYSTEM_PROMPT,
         tools=build_tools(ws),
         hooks=[ws.audit],
         interventions=[ws.policy],
+        plugins=plugins,
         name="giveright",
         description="Routes a photographed pile of donations to the organisations "
                     "that are actually short of those things.",
         **kwargs,
     )
+
+    # The policy needs to know which skill the agent is working in, and only
+    # the agent knows that. Reading it lazily keeps the two from owning each
+    # other.
+    ws.skill_state = lambda: (
+        (agent.state.get("agent_skills") or {}).get("activated_skills") or []
+    )
+    return agent
 
 
 def open_session(

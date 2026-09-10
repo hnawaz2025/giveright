@@ -42,6 +42,7 @@ class Workspace:
     holds: HoldLog = field(default_factory=HoldLog)
     audit: object | None = None
     policy: object | None = None
+    skill_state: object | None = None
 
     @classmethod
     def open(

@@ -236,6 +236,23 @@ call denied before it ran. A run reads back as a timeline:
     ✓ radius_mi=8.0, stops=4, verification_offers=1, unplaced=2
 ```
 
+**Skills** — `skills/*/SKILL.md` are real `strands.Skill` objects, loaded by the
+`AgentSkills` plugin. Each declares `allowed-tools`, and the twelve tools are
+partitioned between three skills with no overlap and no orphans:
+
+| Skill | Tools |
+| --- | --- |
+| `donation-run` | radius, identify, ask, plan, compare, resolve, record drop-off |
+| `org-outreach` | message, verify, record reply |
+| `neighbourhood-watch` | held items, dashboard |
+
+Strands shows `allowed-tools` to the model but leaves every tool callable, so
+the policy handler enforces it: an agent working through `org-outreach` **cannot
+write to the ledger**, and the watch skill cannot contact anyone. Before any
+skill is activated the agent is unscoped, which is correct — it has not yet said
+what it is doing. Descriptions go in the system prompt; the instructions load
+only when a skill is activated.
+
 **Interrupts** — below.
 
 ## Interrupts, not notifications
@@ -265,7 +282,7 @@ whoever they like. The agent does not.
 
 ## Status
 
-Working end to end and under test (171 tests, no network, no credentials): the
+Working end to end and under test (180 tests, no network, no credentials): the
 domain model and item state machine, the organization corpus and its
 append-only observation log, distance ranking, the clarification rule, the
 no-dead-ends chain, the neighbourhood ledger, the twelve-tool Strands agent, an
@@ -303,6 +320,7 @@ src/giveright/
   llm.py       which model does what; both roles set from the environment
   audit.py     Strands hooks: what the agent did, append-only
   policy.py    Strands interventions: what it is not allowed to do
+skills/        one SKILL.md per skill, each with its own allowed-tools
   api.py       HTTP surface
   static/      the mobile web app: one file, no build step, no CDN
   demo.py      a terminal walkthrough
@@ -318,7 +336,7 @@ data/pathways.yaml  reuse / recycle / disposal routes per category
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest                                  # 171 tests, no model, no network
+.venv/bin/pytest                                  # 180 tests, no model, no network
 .venv/bin/python -m giveright.demo --fresh --today 2026-09-07   # reproducible run
 .venv/bin/python -m giveright.demo --agent        # the same flow, driven by the model
 .venv/bin/uvicorn giveright.api:app --host 0.0.0.0   # the web app, on http://<your-ip>:8000

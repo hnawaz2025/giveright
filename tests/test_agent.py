@@ -19,9 +19,10 @@ def ws(tmp_path):
 def test_every_tool_is_registered_with_the_agent(ws):
     agent = build_agent(ws, model=StubModel())
 
-    assert len(agent.tool_names) == 12
+    assert len(agent.tool_names) == 13, "twelve tools, plus the skills tool"
     assert "plan_dropoffs" in agent.tool_names
     assert "ask_the_donor" in agent.tool_names
+    assert "skills" in agent.tool_names
 
 
 def test_the_tools_reach_the_model_as_specs(ws):
